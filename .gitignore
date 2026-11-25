@@ -1,0 +1,26 @@
+# Python bytecode & build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Test & notebook caches
+.pytest_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+
+# OS & editor clutter
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+
+# Large binary data / tensor caches (reproducible from official Kaggle CSVs)
+artifacts/*.npz
+*.npz
+*.parquet
+*.csv

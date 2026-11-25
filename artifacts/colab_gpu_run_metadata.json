@@ -1,0 +1,71 @@
+{
+  "architecture": "Multi-Scale 1D-CNN (k=3,7,15) + SE-ResBlock + FiLM Drill Conditioning + Gated Temporal & Cross-Rep MIL Attention",
+  "trainable_parameters": 39911,
+  "input_channels": [
+    "s",
+    "a_tan",
+    "omega",
+    "kappa",
+    "jerk"
+  ],
+  "derived_input_channels": 11,
+  "sequence_length_frames": 96,
+  "sampling_hz": 10.0,
+  "max_reps_per_player": 18,
+  "total_combine_player_frames": 431094,
+  "packed_reps": 6280,
+  "device": "cuda",
+  "gpu_name": "NVIDIA L4",
+  "vram_gb": 22.03,
+  "pytorch_version": "2.14.1+cu130",
+  "epochs_per_fold": 72,
+  "seeds_per_inner_fold": [
+    42,
+    1024,
+    2027
+  ],
+  "nested_cv_protocol": "Strict outer-fold normalization + 5-fold inner CV x 3 seeds SWA (zero outer leakage)",
+  "total_gpu_train_sec": 1692.42,
+  "standalone_cnn_oof": {
+    "b1_stratified_5fold": {
+      "n": 497,
+      "r2": 0.18518,
+      "spearman_rho": 0.45715,
+      "skill_only_r2": 0.19602,
+      "skill_only_rho": 0.44931,
+      "elapsed_sec": 465.78
+    },
+    "b1_temporal_loyo": {
+      "n": 497,
+      "r2": 0.18077,
+      "spearman_rho": 0.44233,
+      "skill_only_r2": 0.19107,
+      "skill_only_rho": 0.44664,
+      "elapsed_sec": 252.39
+    },
+    "b2_stratified_5fold": {
+      "n": 510,
+      "r2": -0.09485,
+      "spearman_rho": 0.14669,
+      "skill_only_r2": -0.09626,
+      "skill_only_rho": 0.08192,
+      "elapsed_sec": 526.34
+    },
+    "b2_temporal_loyo": {
+      "n": 510,
+      "r2": -0.12941,
+      "spearman_rho": 0.07124,
+      "skill_only_r2": -0.15618,
+      "skill_only_rho": 0.00492,
+      "elapsed_sec": 270.23
+    },
+    "b3_dl_get_off_stratified": {
+      "n": 115,
+      "r2": 0.53861,
+      "spearman_rho": 0.73171,
+      "skill_only_r2": 0.52829,
+      "skill_only_rho": 0.72025,
+      "elapsed_sec": 176.13
+    }
+  }
+}
