@@ -1300,6 +1300,7 @@ def write_v5_interactive_filmroom(
         display: none;
       }}
       .data-table,
+      .data-table caption,
       .data-table tbody,
       .data-table tr,
       .data-table th,
@@ -1396,7 +1397,7 @@ def write_v5_interactive_filmroom(
             <span class="player-role">Gem</span>
           </div>
           <div class="player-meta num" id="gemMeta">
-            {_esc(first_gem["pos"])}, Rd {int(first_gem["draft_label"].split()[1].rstrip(","))} #{first_gem["draft_label"].split("#")[-1]}, {_esc(first_gem["forty_label"])}, {first_gem["alpha"]:+.2f}σ ({first_gem["snaps"]:.0f} snaps)
+            {_esc(first_gem["pos"])}, {_esc(first_gem["draft_label"])}, {_esc(first_gem["forty_label"])}, {first_gem["alpha"]:+.2f}σ ({first_gem["snaps"]:.0f} snaps)
           </div>
         </div>
         <div class="player-strip" id="trapBriefCard">
@@ -1931,7 +1932,9 @@ def write_v5_interactive_filmroom(
       drawGhostPath(m.gem, COLORS.green, gemGlowHex, false);
 
       // Pick least-crowded corner (bottom-left vs top-left) so legend never overlaps glowing trajectories
-      const legW = 220, legH = 46;
+      const compact = pw < 320;
+      const legW = compact ? Math.min(188, pw - 16) : 220;
+      const legH = compact ? 40 : 46;
       const candCorners = [
         {{ x: pad.l + 8, y: pad.t + ph - legH - 8 }},
         {{ x: pad.l + 8, y: pad.t + 8 }},
@@ -1959,27 +1962,31 @@ def write_v5_interactive_filmroom(
       ctx.lineWidth = 1;
       ctx.strokeRect(lx, ly, legW, legH);
 
+      const lFont = compact ? "600 9.5px -apple-system, BlinkMacSystemFont, Helvetica Neue, Arial, sans-serif" : "600 11px -apple-system, BlinkMacSystemFont, Helvetica Neue, Arial, sans-serif";
+      const row1Y = compact ? ly + 13 : ly + 15;
+      const row2Y = compact ? ly + 29 : ly + 34;
+
       ctx.strokeStyle = COLORS.green;
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(lx + 8, ly + 15);
-      ctx.lineTo(lx + 28, ly + 15);
+      ctx.moveTo(lx + 8, row1Y);
+      ctx.lineTo(lx + 24, row1Y);
       ctx.stroke();
       ctx.fillStyle = COLORS.ink;
       ctx.textAlign = "left";
-      ctx.font = "600 11px -apple-system, BlinkMacSystemFont, Helvetica Neue, Arial, sans-serif";
-      ctx.fillText(`${{m.gem.name}} (${{getHeadLabel(hk)}})`, lx + 34, ly + 19);
+      ctx.font = lFont;
+      ctx.fillText(compact ? m.gem.name : `${{m.gem.name}} (${{getHeadLabel(hk)}})`, lx + 30, row1Y + 4);
 
       ctx.strokeStyle = COLORS.crimson;
       ctx.lineWidth = 2.2;
       ctx.setLineDash([5, 3]);
       ctx.beginPath();
-      ctx.moveTo(lx + 8, ly + 34);
-      ctx.lineTo(lx + 28, ly + 34);
+      ctx.moveTo(lx + 8, row2Y);
+      ctx.lineTo(lx + 24, row2Y);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = COLORS.crimson;
-      ctx.fillText(`${{m.trap.name}} (Peer)`, lx + 34, ly + 38);
+      ctx.fillText(compact ? `${{m.trap.name}} (Peer)` : `${{m.trap.name}} (Peer)`, lx + 30, row2Y + 4);
 
       ctx.strokeStyle = COLORS.rule;
       ctx.strokeRect(pad.l, pad.t, pw, ph);
@@ -2038,13 +2045,14 @@ def write_v5_interactive_filmroom(
         ctx.stroke();
         ctx.fillText(`${{st}}`, pad.l - 6, y + 4);
       }}
+      const narrowSal = pw < 320;
       ctx.textAlign = "left";
       ctx.fillStyle = COLORS.ink;
-      ctx.font = "600 11px -apple-system, BlinkMacSystemFont, Helvetica Neue, Arial, sans-serif";
-      ctx.fillText("Optical Speed (yd/s)", pad.l + 6, pad.t + 14);
+      ctx.font = narrowSal ? "600 9.5px -apple-system, BlinkMacSystemFont, Helvetica Neue, Arial, sans-serif" : "600 11px -apple-system, BlinkMacSystemFont, Helvetica Neue, Arial, sans-serif";
+      ctx.fillText(narrowSal ? "Speed (yd/s)" : "Optical Speed (yd/s)", pad.l + 6, pad.t + 14);
       ctx.fillStyle = COLORS.crimson;
       ctx.textAlign = "right";
-      ctx.fillText(`Peak 0.3s: ${{pk.start_sec.toFixed(1)}} to ${{pk.end_sec.toFixed(1)}}s`, pad.l + pw - 6, pad.t + 14);
+      ctx.fillText(narrowSal ? `Peak ${{pk.start_sec.toFixed(1)}}-${{pk.end_sec.toFixed(1)}}s` : `Peak 0.3s: ${{pk.start_sec.toFixed(1)}} to ${{pk.end_sec.toFixed(1)}}s`, pad.l + pw - 6, pad.t + 14);
 
       function plotLine(frames, getter, yFn, color, width, dashed) {{
         ctx.save();
@@ -2275,11 +2283,11 @@ def write_v5_interactive_filmroom(
       const pOpt = sigmoid(pm.bust_opt_b0 + pm.bust_opt_b1 * lp + pm.bust_opt_b2 * oz);
       const bustRed = +(100 * (pSw - pOpt) / Math.max(pSw, 1e-4)).toFixed(1);
 
-      let verdict = "Slot-neutral market pick";
+      let verdict = "Slot-Neutral Market Pick";
       let isRisk = false;
-      if (surplus >= 12.0 && oz >= 0.75) verdict = "High-conviction optical value target";
-      else if (surplus >= 5.0 && oz >= 0.0) verdict = "Positive surplus value pick";
-      else if (oz <= -0.75 || surplus < -1.5) {{ verdict = "Elevated stopwatch trap risk"; isRisk = true; }}
+      if (oz <= -0.75 || surplus < -1.5) {{ verdict = "Elevated Stopwatch Trap Risk"; isRisk = true; }}
+      else if (surplus >= 12.0 && oz >= 0.75) verdict = "High-Conviction Optical Value Target";
+      else if (surplus >= 5.0 && oz >= 0.0) verdict = "Positive Surplus Value Pick";
 
       const pool = EV.prospects.filter(r => r.grp === grp);
       const scored = pool.map(r => {{
@@ -2490,7 +2498,7 @@ def write_v5_interactive_filmroom(
         `${{grpLabels[res.grp]}} Surplus Curve (${{ozText}})`;
 
       const grid = document.getElementById("historicalCompsGrid");
-      grid.innerHTML = "";
+      grid.replaceChildren();
       res.comps.forEach((c, idx) => {{
         const card = document.createElement("article");
         card.className = "comp-card";
@@ -2498,17 +2506,35 @@ def write_v5_interactive_filmroom(
         const f40Str = c.f40 === null ? "opt-out" : `${{c.f40.toFixed(2)}}s`;
         const sSign = c.surplus >= 0 ? "+" : "-";
         const sCls = c.surplus >= 0 ? "num-turf" : "num-crimson";
-        card.innerHTML =
-          `<div class="comp-head">` +
-            `<span class="comp-name">${{idx + 1}}. ${{c.name}}</span>` +
-            `<span class="comp-sim num">${{(c.sim * 100).toFixed(0)}}%</span>` +
-          `</div>` +
-          `<div class="comp-meta num">${{c.yr}} ${{c.pos}}, ${{rdStr}}, ${{f40Str}}</div>` +
-          `<div class="comp-meta num">α ${{c.oz >= 0 ? "+" : ""}}${{c.oz.toFixed(2)}}σ, ${{c.snaps}} snaps</div>` +
-          `<div class="comp-stats num">` +
-            `<span>Realized EV</span>` +
-            `<strong class="${{sCls}}">${{sSign}}$${{Math.abs(c.surplus).toFixed(1)}}M</strong>` +
-          `</div>`;
+
+        const head = document.createElement("div");
+        head.className = "comp-head";
+        const nm = document.createElement("span");
+        nm.className = "comp-name";
+        nm.textContent = `${{idx + 1}}. ${{c.name}}`;
+        const sm = document.createElement("span");
+        sm.className = "comp-sim num";
+        sm.textContent = `${{(c.sim * 100).toFixed(0)}}%`;
+        head.append(nm, sm);
+
+        const m1 = document.createElement("div");
+        m1.className = "comp-meta num";
+        m1.textContent = `${{c.yr}} ${{c.pos}}, ${{rdStr}}, ${{f40Str}}`;
+
+        const m2 = document.createElement("div");
+        m2.className = "comp-meta num";
+        m2.textContent = `α ${{c.oz >= 0 ? "+" : ""}}${{c.oz.toFixed(2)}}σ, ${{c.snaps}} snaps`;
+
+        const st = document.createElement("div");
+        st.className = "comp-stats num";
+        const stLbl = document.createElement("span");
+        stLbl.textContent = "Realized EV";
+        const stVal = document.createElement("strong");
+        stVal.className = sCls;
+        stVal.textContent = `${{sSign}}$${{Math.abs(c.surplus).toFixed(1)}}M`;
+        st.append(stLbl, stVal);
+
+        card.append(head, m1, m2, st);
         grid.appendChild(card);
       }});
 

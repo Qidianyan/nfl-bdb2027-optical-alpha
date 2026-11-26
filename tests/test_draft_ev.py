@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import math
+import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +22,7 @@ from nfl_bdb2027.draft_ev import (
 from nfl_bdb2027.kinematics import aggregate_player_kinematics, extract_rep_level_kinematics
 from nfl_bdb2027.outcomes import build_outcomes_table
 from nfl_bdb2027.positional_attn import POSITION_GROUPS
+from test_artifacts import LEGACY_BEIGE_HEXES, _is_forbidden_hue
 
 
 @pytest.fixture(scope="module")
@@ -72,12 +75,15 @@ def test_surplus_ev_conservation_and_optical_monotonicity(fitted_ev_engine: Draf
 
             # Higher optical alpha strictly increases expected surplus EV and lowers bust probability
             assert high["expected_surplus_ev_m"] > mid["expected_surplus_ev_m"] > low["expected_surplus_ev_m"]
-            assert high["v4_optical_bust_prob"] < low["v4_optical_bust_prob"]
+            assert high["v4_optical_bust_prob"] < mid["v4_optical_bust_prob"] < low["v4_optical_bust_prob"]
+            assert mid["bust_risk_reduction_pct"] == pytest.approx(0.0, abs=1e-6)
             assert high["bust_risk_reduction_pct"] > 0.0
+            assert low["bust_risk_reduction_pct"] < 0.0
+            assert low["verdict"] == "Elevated Stopwatch Trap Risk"
 
 
 def test_real_historical_comps_retrieval_no_mock_data(fitted_ev_engine: DraftSurplusEVEngine) -> None:
-    # Querying WR_TE Day-3 high optical profile must retrieve real cohort prospects from 510 dataset
+    # Querying Day-3 high optical profile must retrieve real cohort prospects from 510 dataset
     valid_ids = set(fitted_ev_engine.prospects_df["nfl_id"].astype(int).tolist())
     for grp in POSITION_GROUPS:
         comps = fitted_ev_engine.find_similar_prospects(grp, draft_pick=140, optical_alpha_z=1.2, top_k=3)
@@ -91,14 +97,64 @@ def test_real_historical_comps_retrieval_no_mock_data(fitted_ev_engine: DraftSur
 
 
 def test_draft_ev_invalid_inputs_intercepted(fitted_ev_engine: DraftSurplusEVEngine) -> None:
-    with pytest.raises(ValueError):
-        fitted_ev_engine.evaluate("WR_TE", 0, 0.5)
-    with pytest.raises(ValueError):
-        fitted_ev_engine.evaluate("WR_TE", 260, 0.5)
-    with pytest.raises(ValueError):
-        fitted_ev_engine.evaluate("WR_TE", 50, float("nan"))
+    for bad_pick in (0, -1, 258, 999, True, False, None, "abc", float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            rookie_contract_4yr_millions(bad_pick)  # type: ignore[arg-type]
+        with pytest.raises(ValueError):
+            pick_to_round(bad_pick)  # type: ignore[arg-type]
+        with pytest.raises(ValueError):
+            fitted_ev_engine.evaluate("WR_TE", bad_pick, 0.5)  # type: ignore[arg-type]
+    for bad_oz in (None, True, False, "nan_str", float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError):
+            fitted_ev_engine.evaluate("WR_TE", 50, bad_oz)  # type: ignore[arg-type]
     with pytest.raises(ValueError):
         fitted_ev_engine.evaluate("QUARTERBACK_INVALID", 10, 0.5)
+    with pytest.raises(ValueError):
+        realized_production_4yr_millions(0.5, 500.0, 10.0, "INVALID_GRP")
+
+
+def test_python_and_serialized_js_model_params_exact_parity(fitted_ev_engine: DraftSurplusEVEngine) -> None:
+    """Verify serialized model_params used by FilmRoom JS match Python DraftSurplusEVEngine.evaluate() 1:1."""
+    bundle = fitted_ev_engine.export_ui_and_chart_bundle()
+    cba_x = [math.log(p) for p in bundle["cba_pick_anchors"]]
+    cba_y = bundle["cba_cost_4yr_m_anchors"]
+
+    def js_eval(grp: str, pick: int, oz: float) -> tuple[float, float, float, str]:
+        pm = bundle["model_params"][grp]
+        lp = math.log(pick)
+        cost = round(float(np.interp(lp, cba_x, cba_y)), 3)
+        prod = round(max(2.4, pm["intercept"] + pm["b_log_pick"] * lp + pm["b_optical_z"] * oz), 3)
+        surplus = round(prod - cost, 3)
+        p_sw = 1.0 / (1.0 + math.exp(-(pm["bust_sw_b0"] + pm["bust_sw_b1"] * lp)))
+        p_opt = 1.0 / (1.0 + math.exp(-(pm["bust_opt_b0"] + pm["bust_opt_b1"] * lp + pm["bust_opt_b2"] * oz)))
+        bust_red = round(100.0 * (p_sw - p_opt) / max(p_sw, 1e-4), 1)
+        if oz <= -0.75 or surplus < -1.5:
+            verdict = "Elevated Stopwatch Trap Risk"
+        elif surplus >= 12.0 and oz >= 0.75:
+            verdict = "High-Conviction Optical Value Target"
+        elif surplus >= 5.0 and oz >= 0.0:
+            verdict = "Positive Surplus Value Pick"
+        else:
+            verdict = "Slot-Neutral Market Pick"
+        return prod, surplus, bust_red, verdict
+
+    for grp in POSITION_GROUPS:
+        for pk, oz in ((1, 1.5), (24, -1.4), (54, 0.5), (177, 0.6), (257, 0.0)):
+            py_res = fitted_ev_engine.evaluate(grp, pk, oz)
+            j_prod, j_sur, j_br, j_verdict = js_eval(grp, pk, oz)
+            assert py_res["expected_production_4yr_m"] == pytest.approx(j_prod, abs=1e-2)
+            assert py_res["expected_surplus_ev_m"] == pytest.approx(j_sur, abs=1e-2)
+            assert py_res["bust_risk_reduction_pct"] == pytest.approx(j_br, abs=0.11)
+            assert py_res["verdict"] == j_verdict
+
+
+def test_partial_cohort_missing_group_fallback(fitted_ev_engine: DraftSurplusEVEngine) -> None:
+    """Fitting on a subset missing OL_LB must gracefully shrink to global prior instead of crashing."""
+    partial = fitted_ev_engine.prospects_df[fitted_ev_engine.prospects_df["position_group"] != "OL_LB"].copy()
+    eng = DraftSurplusEVEngine.fit(partial)
+    res = eng.evaluate("OL_LB", 80, 1.0)
+    assert math.isfinite(res["expected_surplus_ev_m"])
+    assert res["historical_comps"] == []
 
 
 def test_realized_production_non_negative_floor() -> None:
@@ -131,6 +187,16 @@ def test_v5_six_figures_and_interactive_filmroom_integrity() -> None:
         assert p.exists(), f"Missing 2x Retina PNG: {p}"
         assert p.stat().st_size > 20_000, f"PNG suspiciously small: {p}"
 
+    fig6_svg = FIGURES_DIR / "fig6_temporal_attention_saliency_and_draft_ev.svg"
+    assert fig6_svg.exists()
+    fig6_txt = fig6_svg.read_text(encoding="utf-8")
+    assert ET.fromstring(fig6_txt).tag.endswith("svg")
+    assert "#FFFFFF" in fig6_txt
+    fig6_hexes = {h.upper() for h in re.findall(r"#[0-9A-Fa-f]{6}\b", fig6_txt)}
+    assert not (fig6_hexes & LEGACY_BEIGE_HEXES)
+    for hx in fig6_hexes:
+        assert not _is_forbidden_hue(hx), f"Forbidden hue {hx} in fig6 SVG"
+
     filmroom = MATERIALS_DIR / "NFL_BDB2027_Interactive_FilmRoom.html"
     assert filmroom.exists(), f"Missing {filmroom}"
     html = filmroom.read_text(encoding="utf-8")
@@ -143,5 +209,10 @@ def test_v5_six_figures_and_interactive_filmroom_integrity() -> None:
     assert 'id="opticalAlphaSlider"' in html
     assert 'id="saliencyCanvas"' in html
     assert 'id="draftEvCanvas"' in html
+    assert "#FFFFFF" in html
+    html_hexes = {h.upper() for h in re.findall(r"#[0-9A-Fa-f]{6}\b", html)}
+    assert not (html_hexes & LEGACY_BEIGE_HEXES)
+    for hx in html_hexes:
+        assert not _is_forbidden_hue(hx), f"Forbidden hue {hx} in FilmRoom HTML"
     for tok in ("TODO", "FIXME", "PLACEHOLDER"):
         assert tok not in html

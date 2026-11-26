@@ -53,13 +53,16 @@ BUST_SNAPS_THRESHOLD = 250.0  # < 250 snaps/season across eligible seasons = rot
 def rookie_contract_4yr_millions(pick: int | float) -> float:
     """Return official CBA-calibrated 4-year rookie contract cost ($M) for draft pick in [1, 257].
 
-    Strictly monotonically decreasing with draft pick; raises ValueError for NaN/Inf or out-of-range pick.
+    Strictly monotonically decreasing with draft pick; raises ValueError for NaN/Inf, bool, or out-of-range pick.
     """
-    if pick is None or (isinstance(pick, (int, float, np.floating)) and not math.isfinite(float(pick))):
-        raise ValueError(f"Draft pick must be finite integer in [1, 257], got {pick}")
-    p = float(pick)
-    if p < 1.0 or p > 257.0:
-        raise ValueError(f"Draft pick out of valid NFL draft bounds [1, 257]: {pick}")
+    if pick is None or isinstance(pick, bool):
+        raise ValueError(f"Draft pick must be finite number in [1, 257], got {pick!r}")
+    try:
+        p = float(pick)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Draft pick must be finite number in [1, 257], got {pick!r}") from exc
+    if not math.isfinite(p) or p < 1.0 or p > 257.0:
+        raise ValueError(f"Draft pick out of valid NFL draft bounds [1, 257]: {pick!r}")
     # Piecewise linear interpolation in log(pick) space guarantees strict monotonicity across [1, 257]
     log_p = math.log(p)
     log_anchors = np.log(CBA_PICK_ANCHORS)
@@ -69,9 +72,15 @@ def rookie_contract_4yr_millions(pick: int | float) -> float:
 
 def pick_to_round(pick: int) -> int:
     """Map overall NFL draft pick [1..257] to draft round [1..7]."""
-    p = int(pick)
-    if p < 1 or p > 257:
-        raise ValueError(f"Draft pick out of bounds [1, 257]: {pick}")
+    if pick is None or isinstance(pick, bool):
+        raise ValueError(f"Draft pick must be integer in [1, 257], got {pick!r}")
+    try:
+        pf = float(pick)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Draft pick must be integer in [1, 257], got {pick!r}") from exc
+    if not math.isfinite(pf) or pf < 1.0 or pf > 257.0:
+        raise ValueError(f"Draft pick out of bounds [1, 257]: {pick!r}")
+    p = int(round(pf))
     boundaries = [32, 64, 100, 135, 177, 220, 257]
     for rd, hi in enumerate(boundaries, start=1):
         if p <= hi:
@@ -90,6 +99,8 @@ def realized_production_4yr_millions(
     Non-negative floor ($2.4M practice-squad / reserve replacement floor) scaling smoothly with
     realized NFL snaps, starts, and All-Pro/Pro-Bowl value index.
     """
+    if position_group not in POSITION_MARKET_BASE_4YR_M:
+        raise ValueError(f"Unknown position_group {position_group!r}; expected one of {list(POSITION_MARKET_BASE_4YR_M)}")
     base_m, scale_m = POSITION_MARKET_BASE_4YR_M[position_group]
     val_z = float(nfl_value_index) if math.isfinite(float(nfl_value_index)) else -0.5
     snaps = max(0.0, float(snaps_per_season) if math.isfinite(float(snaps_per_season)) else 0.0)
@@ -188,27 +199,48 @@ class DraftSurplusEVEngine:
 
         # Fit global pooled bust logistic model (matched-intercept counterfactual space)
         y_bust_all = df["is_bust"].to_numpy(dtype=int)
-        glob_bust = LogisticRegression(C=0.8).fit(X_all, y_bust_all)
-        glob_b_pick = max(0.35, float(glob_bust.coef_[0, 0]))
-        glob_b_opt = min(-0.32, float(glob_bust.coef_[0, 1]))
+        if len(np.unique(y_bust_all)) >= 2 and len(df) >= 6:
+            glob_bust = LogisticRegression(C=0.8).fit(X_all, y_bust_all)
+            glob_b0 = float(glob_bust.intercept_[0])
+            glob_b_pick = max(0.35, float(glob_bust.coef_[0, 0]))
+            glob_b_opt = min(-0.32, float(glob_bust.coef_[0, 1]))
+        else:
+            p_bar = float(np.clip(np.mean(y_bust_all), 0.05, 0.95))
+            glob_b0 = math.log(p_bar / (1.0 - p_bar)) - 0.5 * float(np.mean(X_all[:, 0]))
+            glob_b_pick = 0.50
+            glob_b_opt = -0.35
 
         prod_models: dict[str, dict[str, Any]] = {}
         bust_models: dict[str, dict[str, float]] = {}
 
+        glob_intercept = (
+            float(np.mean(y_all))
+            - float(glob_coef[0]) * float(np.mean(X_all[:, 0]))
+            - float(glob_coef[1]) * float(np.mean(X_all[:, 1]))
+        )
+        glob_pred = glob_intercept + glob_coef[0] * X_all[:, 0] + glob_coef[1] * X_all[:, 1]
+        glob_se = max(1.2, float(np.std(y_all - glob_pred)) / math.sqrt(max(12.0, len(df) / 6.0)))
+
         for grp in POSITION_GROUPS:
             sub = df[df["position_group"] == grp]
-            Xg = np.column_stack([sub["log_pick_ev"].to_numpy(), sub["optical_alpha_z"].to_numpy()])
-            yg = sub["realized_prod_4yr_m"].to_numpy(dtype=np.float64)
             n_g = float(len(sub))
-            reg_g = RidgeCV(alphas=np.logspace(0, 3, 20)).fit(Xg, yg)
+            if len(sub) >= 3:
+                Xg = np.column_stack([sub["log_pick_ev"].to_numpy(), sub["optical_alpha_z"].to_numpy()])
+                yg = sub["realized_prod_4yr_m"].to_numpy(dtype=np.float64)
+                reg_g = RidgeCV(alphas=np.logspace(0, 3, 20)).fit(Xg, yg)
 
-            # Empirical-Bayes shrunk slope toward global monotonic biomechanical prior
-            sh = n_g / (n_g + 60.0)
-            b_pick = min(-2.0, sh * float(reg_g.coef_[0]) + (1.0 - sh) * float(glob_coef[0]))
-            b_opt = max(2.2, sh * float(reg_g.coef_[1]) + (1.0 - sh) * float(glob_coef[1]))
-            intercept = float(np.mean(yg)) - b_pick * float(np.mean(Xg[:, 0])) - b_opt * float(np.mean(Xg[:, 1]))
-            pred_g = intercept + b_pick * Xg[:, 0] + b_opt * Xg[:, 1]
-            resid_se = float(np.std(yg - pred_g)) / math.sqrt(max(12.0, n_g / 6.0))
+                # Empirical-Bayes shrunk slope toward global monotonic biomechanical prior
+                sh = n_g / (n_g + 60.0)
+                b_pick = min(-2.0, sh * float(reg_g.coef_[0]) + (1.0 - sh) * float(glob_coef[0]))
+                b_opt = max(2.2, sh * float(reg_g.coef_[1]) + (1.0 - sh) * float(glob_coef[1]))
+                intercept = float(np.mean(yg)) - b_pick * float(np.mean(Xg[:, 0])) - b_opt * float(np.mean(Xg[:, 1]))
+                pred_g = intercept + b_pick * Xg[:, 0] + b_opt * Xg[:, 1]
+                resid_se = float(np.std(yg - pred_g)) / math.sqrt(max(12.0, n_g / 6.0))
+            else:
+                b_pick = float(glob_coef[0])
+                b_opt = float(glob_coef[1])
+                intercept = glob_intercept
+                resid_se = glob_se
 
             prod_models[grp] = {
                 "intercept": intercept,
@@ -221,11 +253,12 @@ class DraftSurplusEVEngine:
             yb = sub["is_bust"].to_numpy(dtype=int)
             if len(np.unique(yb)) >= 2 and int(len(sub)) >= 25:
                 m_opt = LogisticRegression(C=0.6).fit(Xg, yb)
+                sh = n_g / (n_g + 60.0)
                 gb_b0 = float(m_opt.intercept_[0])
                 gb_b1 = max(0.35, sh * float(m_opt.coef_[0, 0]) + (1.0 - sh) * glob_b_pick)
                 gb_b2 = min(-0.28, sh * float(m_opt.coef_[0, 1]) + (1.0 - sh) * glob_b_opt)
             else:
-                gb_b0 = float(glob_bust.intercept_[0])
+                gb_b0 = glob_b0
                 gb_b1 = glob_b_pick
                 gb_b2 = glob_b_opt
 
@@ -256,6 +289,8 @@ class DraftSurplusEVEngine:
         k = max(1, min(int(top_k), 10))
 
         sub = self.prospects_df[self.prospects_df["position_group"] == grp].copy()
+        if len(sub) == 0:
+            return []
         d_pick = (sub["log_pick_ev"].to_numpy() - math.log(p)) / 1.15
         d_opt = (sub["optical_alpha_z"].to_numpy() - oz) / 1.00
         dist = np.sqrt(d_pick ** 2 + d_opt ** 2)
@@ -296,18 +331,27 @@ class DraftSurplusEVEngine:
 
     @staticmethod
     def _validate_pick(draft_pick: int | float) -> float:
-        if draft_pick is None or not math.isfinite(float(draft_pick)):
-            raise ValueError(f"draft_pick must be finite in [1, 257], got {draft_pick}")
-        p = float(draft_pick)
-        if p < 1.0 or p > 257.0:
-            raise ValueError(f"draft_pick out of bounds [1, 257]: {draft_pick}")
+        if draft_pick is None or isinstance(draft_pick, bool):
+            raise ValueError(f"draft_pick must be finite in [1, 257], got {draft_pick!r}")
+        try:
+            p = float(draft_pick)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"draft_pick must be finite in [1, 257], got {draft_pick!r}") from exc
+        if not math.isfinite(p) or p < 1.0 or p > 257.0:
+            raise ValueError(f"draft_pick out of bounds [1, 257]: {draft_pick!r}")
         return p
 
     @staticmethod
     def _validate_optical_z(optical_alpha_z: float) -> float:
-        if optical_alpha_z is None or not math.isfinite(float(optical_alpha_z)):
-            raise ValueError(f"optical_alpha_z must be finite, got {optical_alpha_z}")
-        return float(np.clip(float(optical_alpha_z), -3.5, 3.5))
+        if optical_alpha_z is None or isinstance(optical_alpha_z, bool):
+            raise ValueError(f"optical_alpha_z must be finite, got {optical_alpha_z!r}")
+        try:
+            oz = float(optical_alpha_z)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"optical_alpha_z must be finite, got {optical_alpha_z!r}") from exc
+        if not math.isfinite(oz):
+            raise ValueError(f"optical_alpha_z must be finite, got {optical_alpha_z!r}")
+        return float(np.clip(oz, -3.5, 3.5))
 
     def evaluate(
         self,
@@ -342,15 +386,15 @@ class DraftSurplusEVEngine:
         p_bust_v4 = 1.0 / (1.0 + math.exp(-max(-30.0, min(30.0, z_v4))))
         bust_red_pct = round(100.0 * (p_bust_sw - p_bust_v4) / max(p_bust_sw, 1e-4), 1)
 
-        # Actionable GM Draft-Room recommendation label
-        if surplus_m >= 12.0 and oz >= 0.75:
-            verdict = "High-Conviction Optical Value Target"
-        elif surplus_m >= 5.0:
-            verdict = "Positive Surplus Value Pick"
-        elif surplus_m >= -1.5:
-            verdict = "Slot-Neutral Market Pick"
-        else:
+        # Actionable GM Draft-Room recommendation label (1:1 parity with Interactive Film-Room JS)
+        if oz <= -0.75 or surplus_m < -1.5:
             verdict = "Elevated Stopwatch Trap Risk"
+        elif surplus_m >= 12.0 and oz >= 0.75:
+            verdict = "High-Conviction Optical Value Target"
+        elif surplus_m >= 5.0 and oz >= 0.0:
+            verdict = "Positive Surplus Value Pick"
+        else:
+            verdict = "Slot-Neutral Market Pick"
 
         return {
             "position_group": grp,
