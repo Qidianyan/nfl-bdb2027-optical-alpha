@@ -28,6 +28,7 @@ from nfl_bdb2027.draft_ev import DraftSurplusEVEngine
 from nfl_bdb2027.filmroom_v5 import write_v5_interactive_filmroom
 from nfl_bdb2027.kinematics import aggregate_player_kinematics, extract_rep_level_kinematics
 from nfl_bdb2027.outcomes import build_outcomes_table
+from nfl_bdb2027.report import write_kaggle_writeup_md
 
 
 def _load_v4_oof_scores() -> dict[int, np.ndarray]:
@@ -97,7 +98,7 @@ def main() -> None:
         check=True,
     )
 
-    print("[V5] Generating upgraded Interactive Film-Room Studio HTML...")
+    print("[V5/V6] Generating upgraded Interactive Film-Room Studio HTML...")
     html_path = write_v5_interactive_filmroom(
         paths=paths,
         v4_metrics=v4_metrics,
@@ -106,7 +107,19 @@ def main() -> None:
         out_path=MATERIALS_DIR / "NFL_BDB2027_Interactive_FilmRoom.html",
     )
     print(f"  [HTML] {html_path.name} ({html_path.stat().st_size:,} bytes)")
-    print(f"[V5] Complete in {time.perf_counter() - t0:.1f}s.")
+
+    print("[V6] Refreshing submission-ready 4-decimal Kaggle Writeup (all 6 figures + V4-V6 rigor)...")
+    md_path = write_kaggle_writeup_md(
+        inventory=v2_metrics["dataset_inventory"],
+        results=v2_metrics["modeling_results"],
+        master_df=master_df,
+        out_path=MATERIALS_DIR / "NFL_BDB2027_Kaggle_Writeup.md",
+        v4_metrics=v4_metrics,
+        v4_saliency=v4_saliency,
+        ev_bundle=ev_bundle,
+    )
+    print(f"  [MD] {md_path.name} ({md_path.stat().st_size:,} bytes)")
+    print(f"[V5/V6] Complete in {time.perf_counter() - t0:.1f}s.")
 
 
 if __name__ == "__main__":
