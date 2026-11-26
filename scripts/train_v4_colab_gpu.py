@@ -769,33 +769,38 @@ def dispatch_v4_to_colab(
         subprocess.run([COLAB_BIN, "upload", "-s", session, str(local_f), remote_f], env=env, check=True)
 
     # 4. Run training with --timeout 0 (never idle-timeout during CUDA epochs)
-    launcher = Path("/tmp/nfl2027_v4_colab_launcher.py")
-    launcher.write_text(
-        "\n".join(
-            [
-                "import os, subprocess, sys",
-                f"os.environ['COLAB_ACCOUNT'] = '{account}'",
-                "cmd = [sys.executable, '/content/train_v4_colab_gpu.py', '--mode', 'train',",
-                "       '--tensors-npz', '/content/nfl_10hz_tensors.npz',",
-                "       '--out-npz', '/content/v4_positional_attn_gpu_oof.npz',",
-                "       '--out-meta', '/content/v4_colab_gpu_metadata.json']",
-                "p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)",
-                "for line in p.stdout: print(line, end='', flush=True)",
-                "rc = p.wait()",
-                "if rc != 0: raise RuntimeError(f'V4 GPU training failed rc={rc}')",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    subprocess.run([COLAB_BIN, "exec", "-s", session, "--timeout", "0", "-f", str(launcher)], env=env, check=True)
-    launcher.unlink(missing_ok=True)
+    import tempfile
 
-    # 5. Download trained V4 OOF + 0.1s dual-head saliency bundle & metadata
-    subprocess.run([COLAB_BIN, "download", "-s", session, "/content/v4_positional_attn_gpu_oof.npz", str(out_oof_npz)], env=env, check=True)
-    subprocess.run([COLAB_BIN, "download", "-s", session, "/content/v4_colab_gpu_metadata.json", str(out_meta_json)], env=env, check=True)
+    launcher: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", prefix="nfl2027_v4_launcher_", suffix=".py", delete=False, encoding="utf-8") as tf:
+            launcher = Path(tf.name)
+            tf.write(
+                "\n".join(
+                    [
+                        "import os, subprocess, sys",
+                        f"os.environ['COLAB_ACCOUNT'] = '{account}'",
+                        "cmd = [sys.executable, '/content/train_v4_colab_gpu.py', '--mode', 'train',",
+                        "       '--tensors-npz', '/content/nfl_10hz_tensors.npz',",
+                        "       '--out-npz', '/content/v4_positional_attn_gpu_oof.npz',",
+                        "       '--out-meta', '/content/v4_colab_gpu_metadata.json']",
+                        "p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)",
+                        "for line in p.stdout: print(line, end='', flush=True)",
+                        "rc = p.wait()",
+                        "if rc != 0: raise RuntimeError(f'V4 GPU training failed rc={rc}')",
+                    ]
+                )
+            )
+        subprocess.run([COLAB_BIN, "exec", "-s", session, "--timeout", "0", "-f", str(launcher)], env=env, check=True)
 
-    # 6. Stop GPU immediately & verify zero burn
-    _stop_gpu()
+        # 5. Download trained V4 OOF + 0.1s dual-head saliency bundle & metadata
+        subprocess.run([COLAB_BIN, "download", "-s", session, "/content/v4_positional_attn_gpu_oof.npz", str(out_oof_npz)], env=env, check=True)
+        subprocess.run([COLAB_BIN, "download", "-s", session, "/content/v4_colab_gpu_metadata.json", str(out_meta_json)], env=env, check=True)
+    finally:
+        if launcher is not None:
+            launcher.unlink(missing_ok=True)
+        # 6. Always stop GPU immediately & verify zero burn
+        _stop_gpu()
 
 
 # ---------------------------------------------------------------------------
@@ -937,9 +942,11 @@ def _extract_saliency_profiles(
         win["min_a_tan_yd_s2"] = round(float(np.min(atan_arr[w_st:w_en])), 3)
         win["max_a_cent_yd_s2"] = round(float(np.max(acent_arr[w_st:w_en])), 3)
 
-        dr = None if np.isnan(row["draft_round"]) else int(row["draft_round"])
-        pk = None if np.isnan(row["draft_overall_pick"]) else int(row["draft_overall_pick"])
-        f40 = None if np.isnan(row["forty"]) else round(float(row["forty"]), 2)
+        import pandas as pd
+
+        dr = None if pd.isna(row["draft_round"]) else int(row["draft_round"])
+        pk = None if pd.isna(row["draft_overall_pick"]) else int(row["draft_overall_pick"])
+        f40 = None if pd.isna(row["forty"]) else round(float(row["forty"]), 2)
         return {
             "nfl_id": int(pid),
             "display_name": str(row["display_name"]),
@@ -976,8 +983,8 @@ def _extract_saliency_profiles(
     ol_sub = master_df[(master_df["combine_position"] == "OL") & (master_df["nfl_id"].isin(id_to_sub))].copy()
     ol_gems = ol_sub[(ol_sub["draft_round"].isna()) | (ol_sub["draft_round"] >= 4)].sort_values("draft_capital_alpha", ascending=False)
     ol_traps = ol_sub[ol_sub["draft_round"] <= 2].sort_values("draft_capital_alpha", ascending=True)
-    ol_gem_id = int(ol_gems.iloc[0]["nfl_id"])
-    ol_trap_id = int(ol_traps.iloc[0]["nfl_id"])
+    ol_gem_id = int(ol_gems.iloc[0]["nfl_id"]) if len(ol_gems) > 0 else None
+    ol_trap_id = int(ol_traps.iloc[0]["nfl_id"]) if len(ol_traps) > 0 else None
 
     matchup_specs = [
         (
@@ -1216,6 +1223,11 @@ def evaluate_v4_locally(
     v4_dl_oof = np.zeros(len(dl_sub), dtype=np.float64)
     sw_dl_oof = np.zeros(len(dl_sub), dtype=np.float64)
     for fi, (tr_idx, va_idx, _) in enumerate(dl_splits):
+        # Enforce strict zero-leakage fold split parity for Benchmark 3 neural features
+        assert np.array_equal(v4_npz[f"v4_b3_dl_strat_f{fi}_tr_idx"], tr_idx), f"V4 B3 train split mismatch f{fi}"
+        assert np.array_equal(v4_npz[f"v4_b3_dl_strat_f{fi}_va_idx"], va_idx), f"V4 B3 val split mismatch f{fi}"
+        assert np.array_equal(v2_npz[f"b3_strat_f{fi}_tr_idx"], tr_idx), f"V2 B3 train split mismatch f{fi}"
+        assert np.array_equal(v2_npz[f"b3_strat_f{fi}_va_idx"], va_idx), f"V2 B3 val split mismatch f{fi}"
         fit_ids = dl_sub.iloc[tr_idx]["nfl_id"].tolist()
         kin_fold = aggregate_player_kinematics(rep_df, cr_pl, fit_nfl_ids=fit_ids).to_pandas()
         fold_df = dl_sub.merge(kin_fold, on="nfl_id", how="left")
@@ -1315,20 +1327,20 @@ def evaluate_v4_locally(
             "top_mil_attended_drills": sal_grp["top_mil_attended_drills"],
         }
 
-    # Apply Benjamini-Hochberg FDR across all hypothesis tests + per-group families
+    # Apply Benjamini-Hochberg FDR consistently across the global 10-test family + labeled 4-position subgroup family
     all_q = benjamini_hochberg_fdr([h["p_raw"] for h in hypothesis_tests])
     for h, q in zip(hypothesis_tests, all_q):
         h["p_raw"] = round(float(h["p_raw"]), 4)
         h["q_fdr"] = round(float(q), 4)
         h["significant_fdr_05"] = bool(q < 0.05)
 
-    q_pos_sw = benjamini_hochberg_fdr(pos_raw_sw_p)
-    q_pos_v2 = benjamini_hochberg_fdr(pos_raw_v2_p)
-    for grp, q_sw, q_v2 in zip(POSITION_GROUPS, q_pos_sw, q_pos_v2):
-        pos_encoders_out[grp]["q_fdr_vs_stopwatch"] = round(float(q_sw), 4)
-        pos_encoders_out[grp]["q_fdr_vs_v2"] = round(float(q_v2), 4)
-
     q_lookup = {h["test_id"]: h["q_fdr"] for h in hypothesis_tests}
+    q_pos_sw_sub = benjamini_hochberg_fdr(pos_raw_sw_p)
+    q_pos_v2_sub = benjamini_hochberg_fdr(pos_raw_v2_p)
+    for grp, q_sw_sub, q_v2_sub in zip(POSITION_GROUPS, q_pos_sw_sub, q_pos_v2_sub):
+        pos_encoders_out[grp]["q_fdr_vs_stopwatch"] = q_lookup[f"pos_{grp}_v4_vs_stopwatch"]
+        pos_encoders_out[grp]["q_fdr_position_family_vs_stopwatch"] = round(float(q_sw_sub), 4)
+        pos_encoders_out[grp]["q_fdr_vs_v2"] = round(float(q_v2_sub), 4)
     v2_b1_s = v2_metrics_file["modeling_results"]["benchmark_1_game_kinematic_translation"]["stratified_5fold"]
     v2_b1_t = v2_metrics_file["modeling_results"]["benchmark_1_game_kinematic_translation"]["temporal_loyo"]
     v2_b3 = v2_metrics_file["modeling_results"]["benchmark_3_dl_get_off"]["stratified_5fold"]

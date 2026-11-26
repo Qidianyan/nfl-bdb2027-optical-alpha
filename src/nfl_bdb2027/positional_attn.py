@@ -638,9 +638,11 @@ def extract_peak_saliency_window(
     dt_sec: float = DT_SEC,
 ) -> dict[str, Any]:
     """Identify the contiguous `window_frames` (default 3 frames = 0.3s) window capturing
-    the highest cumulative temporal attention mass over valid frames."""
+    the highest cumulative temporal attention mass over valid frames (supports arbitrary masks)."""
     a = np.nan_to_num(np.asarray(alpha_t, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
     m = np.nan_to_num(np.asarray(frame_mask, dtype=np.float64), nan=0.0) >= 0.5
+    if a.shape != m.shape or a.ndim != 1:
+        raise ValueError(f"alpha_t and frame_mask must be matching 1D arrays, got {a.shape} vs {m.shape}")
     n_valid = int(m.sum())
     if n_valid == 0:
         return {
@@ -653,16 +655,31 @@ def extract_peak_saliency_window(
             "peak_sec": 0.0,
             "peak_weight": 0.0,
         }
-    valid_a = a[:n_valid]
-    w = max(1, min(int(window_frames), n_valid))
-    best_start = 0
+    masked_a = np.where(m, np.maximum(a, 0.0), 0.0)
+    L = len(masked_a)
+    w = max(1, min(int(window_frames), L))
+    # Prefer fully valid contiguous windows when any exist; otherwise evaluate windows containing >= 1 valid frame
+    best_start = -1
     best_mass = -1.0
-    for st in range(0, n_valid - w + 1):
-        mass = float(valid_a[st : st + w].sum())
-        if mass > best_mass:
-            best_mass = mass
-            best_start = st
-    peak_frame = int(np.argmax(valid_a))
+    for require_full in (True, False):
+        for st in range(0, L - w + 1):
+            win_m = m[st : st + w]
+            if require_full and not bool(np.all(win_m)):
+                continue
+            if not require_full and not bool(np.any(win_m)):
+                continue
+            mass = float(masked_a[st : st + w].sum())
+            if mass > best_mass:
+                best_mass = mass
+                best_start = st
+        if best_start >= 0:
+            break
+    if best_start < 0:
+        best_start = int(np.argmax(m))
+        w = 1
+        best_mass = float(masked_a[best_start])
+    peak_scores = np.where(m, masked_a, -1.0)
+    peak_frame = int(np.argmax(peak_scores))
     return {
         "start_frame": int(best_start),
         "end_frame": int(best_start + w - 1),
@@ -671,7 +688,7 @@ def extract_peak_saliency_window(
         "attention_mass": round(float(best_mass), 4),
         "peak_frame": peak_frame,
         "peak_sec": round(peak_frame * dt_sec, 2),
-        "peak_weight": round(float(valid_a[peak_frame]), 4),
+        "peak_weight": round(float(masked_a[peak_frame]), 4),
     }
 
 
@@ -732,33 +749,52 @@ def bootstrap_ci_and_lift(
 ) -> dict[str, Any]:
     """Compute exact 4-decimal OOF R^2, Spearman rho, RMSE, 2,000x Bootstrap 95% CIs,
     paired Delta R^2, Partial R^2 (+ 95% CI), and calibrated one-sided bootstrap p-value."""
+    import warnings
+
+    if n_boot < 1:
+        raise ValueError(f"n_boot must be >= 1, got {n_boot}")
     yt = np.asarray(y_true, dtype=np.float64)
     yp = np.asarray(y_pred, dtype=np.float64)
+    yb_arr = np.asarray(baseline_pred, dtype=np.float64) if baseline_pred is not None else None
+    valid = np.isfinite(yt) & np.isfinite(yp)
+    if yb_arr is not None:
+        valid = valid & np.isfinite(yb_arr)
+    yt = yt[valid]
+    yp = yp[valid]
+    if yb_arr is not None:
+        yb_arr = yb_arr[valid]
     n = len(yt)
+    if n < 2:
+        raise ValueError(f"bootstrap_ci_and_lift requires at least 2 finite samples, got {n}")
     rng = np.random.default_rng(seed)
 
-    r2 = float(r2_score(yt, yp))
-    rho, rho_p = stats.spearmanr(yt, yp)
+    r2 = float(r2_score(yt, yp)) if float(np.var(yt)) > 1e-12 else 0.0
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        rho, rho_p = stats.spearmanr(yt, yp)
     rho = float(rho) if np.isfinite(rho) else 0.0
     rmse = float(root_mean_squared_error(yt, yp))
 
     boot_r2 = np.empty(n_boot, dtype=np.float64)
     boot_rho = np.empty(n_boot, dtype=np.float64)
-    boot_dr2 = np.empty(n_boot, dtype=np.float64) if baseline_pred is not None else None
-    boot_pr2 = np.empty(n_boot, dtype=np.float64) if baseline_pred is not None else None
-    yb_arr = np.asarray(baseline_pred, dtype=np.float64) if baseline_pred is not None else None
+    boot_dr2 = np.empty(n_boot, dtype=np.float64) if yb_arr is not None else None
+    boot_pr2 = np.empty(n_boot, dtype=np.float64) if yb_arr is not None else None
 
-    for b in range(n_boot):
-        idx = rng.integers(0, n, size=n)
-        yt_b = yt[idx]
-        yp_b = yp[idx]
-        boot_r2[b] = r2_score(yt_b, yp_b)
-        rb = stats.spearmanr(yt_b, yp_b)[0]
-        boot_rho[b] = rb if np.isfinite(rb) else 0.0
-        if yb_arr is not None and boot_dr2 is not None and boot_pr2 is not None:
-            yb_b = yb_arr[idx]
-            boot_dr2[b] = boot_r2[b] - r2_score(yt_b, yb_b)
-            boot_pr2[b] = compute_partial_r2(yt_b, yb_b, yp_b)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for b in range(n_boot):
+            idx = rng.integers(0, n, size=n)
+            yt_b = yt[idx]
+            yp_b = yp[idx]
+            has_var = float(np.var(yt_b)) > 1e-12
+            boot_r2[b] = r2_score(yt_b, yp_b) if has_var else 0.0
+            rb = stats.spearmanr(yt_b, yp_b)[0]
+            boot_rho[b] = rb if np.isfinite(rb) else 0.0
+            if yb_arr is not None and boot_dr2 is not None and boot_pr2 is not None:
+                yb_b = yb_arr[idx]
+                base_b = r2_score(yt_b, yb_b) if has_var else 0.0
+                boot_dr2[b] = boot_r2[b] - base_b
+                boot_pr2[b] = compute_partial_r2(yt_b, yb_b, yp_b)
 
     out: dict[str, Any] = {
         "n": int(n),
@@ -773,7 +809,7 @@ def bootstrap_ci_and_lift(
     }
 
     if yb_arr is not None and boot_dr2 is not None and boot_pr2 is not None:
-        base_r2 = float(r2_score(yt, yb_arr))
+        base_r2 = float(r2_score(yt, yb_arr)) if float(np.var(yt)) > 1e-12 else 0.0
         delta_r2 = r2 - base_r2
         part_r2 = compute_partial_r2(yt, yb_arr, yp)
         # Phipson-Smyth (+1)/(B+1) calibrated one-sided bootstrap p-value (strictly > 0 for BH-FDR)
@@ -910,20 +946,20 @@ class PositionalResidualMetaFusion:
 
         X_in = np.nan_to_num(tr_blocks_inner.astype(np.float64), nan=0.0)
         X_va = np.nan_to_num(va_blocks.astype(np.float64), nan=0.0)
-        y = np.asarray(y_tr, dtype=np.float64)
+        y = np.nan_to_num(np.asarray(y_tr, dtype=np.float64), nan=0.0)
 
         # 1. Global constrained non-negative meta-blend (strictly fit on inner OOFs)
         w_glob, b_glob = _fit_nonneg_ridge_weights(X_in, y, l2_reg=self.l2_reg)
-        tr_base = X_in @ w_glob + b_glob
         va_base = X_va @ w_glob + b_glob
 
-        # 2. Smooth Empirical-Bayes group meta-weights + inner-CV-selected residual RidgeCV blend
+        # 2. Smooth Empirical-Bayes group meta-weights + regularized residual RidgeCV blend
         Z_tr = np.nan_to_num(tr_pos_extra.astype(np.float64), nan=0.0)
         Z_va = np.nan_to_num(va_pos_extra.astype(np.float64), nan=0.0)
-        res_tr = y - tr_base
 
         va_out = va_base.copy()
         alphas = np.logspace(0.5, 3.8, 18)
+        if self.residual_blend is not None and float(self.residual_blend) < 0.0:
+            raise ValueError(f"residual_blend must be >= 0.0, got {self.residual_blend}")
         cand_blends = [0.0, 0.20, 0.40] if self.residual_blend is None else [float(self.residual_blend)]
 
         for grp in POSITION_GROUPS:
@@ -946,23 +982,29 @@ class PositionalResidualMetaFusion:
             b_eb = shrink_g * b_grp + (1.0 - shrink_g) * b_glob
             tr_eb_g = X_in[g_tr] @ w_eb + b_eb
             va_eb_g = X_va[g_va] @ w_eb + b_eb
-
-            # Strictly nested 5-fold inner CV on training group to select 1D residual blend strength
-            kf = KFold(n_splits=min(5, max(2, n_g // 10)), shuffle=True, random_state=42)
             res_g = y[g_tr] - tr_eb_g
-            in_res_pred = np.zeros(n_g, dtype=np.float64)
-            for itr, iva in kf.split(z_tr_s):
-                in_res_pred[iva] = RidgeCV(alphas=alphas).fit(z_tr_s[itr], res_g[itr]).predict(z_tr_s[iva])
 
-            best_mse = float("inf")
-            bl_opt = 0.0
-            for bl in cand_blends:
-                mse = float(np.mean((res_g - bl * in_res_pred) ** 2))
-                if mse < best_mse:
-                    best_mse = mse
-                    bl_opt = bl
+            if len(cand_blends) == 1:
+                bl_opt = cand_blends[0]
+            else:
+                # Strictly nested 5-fold inner CV on training group to select 1D residual blend strength
+                kf = KFold(n_splits=min(5, max(2, n_g // 10)), shuffle=True, random_state=42)
+                in_res_pred = np.zeros(n_g, dtype=np.float64)
+                for itr, iva in kf.split(z_tr_s):
+                    in_res_pred[iva] = RidgeCV(alphas=alphas).fit(z_tr_s[itr], res_g[itr]).predict(z_tr_s[iva])
 
-            ridge_res = RidgeCV(alphas=alphas).fit(z_tr_s, res_g)
-            va_out[g_va] = va_eb_g + bl_opt * ridge_res.predict(z_va_s)
+                best_mse = float("inf")
+                bl_opt = 0.0
+                for bl in cand_blends:
+                    mse = float(np.mean((res_g - bl * in_res_pred) ** 2))
+                    if mse < best_mse:
+                        best_mse = mse
+                        bl_opt = bl
+
+            if bl_opt > 0.0:
+                ridge_res = RidgeCV(alphas=alphas).fit(z_tr_s, res_g)
+                va_out[g_va] = va_eb_g + bl_opt * ridge_res.predict(z_va_s)
+            else:
+                va_out[g_va] = va_eb_g
 
         return np.nan_to_num(va_out, nan=0.0)

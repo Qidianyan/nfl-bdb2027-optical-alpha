@@ -247,3 +247,59 @@ def test_v4_gpu_metrics_and_saliency_artifacts_integrity() -> None:
             w_sum = sum(fr["attn_weight"] for fr in prof["frames"])
             assert w_sum == pytest.approx(1.0, abs=1e-3)
             assert all(math.isfinite(fr["attn_weight"]) for fr in prof["frames"])
+
+    # Verify global BH-FDR cross-consistency between hypothesis_tests and positional_encoders
+    ht = m["statistical_rigor"]["hypothesis_tests"]
+    q_map = {h["test_id"]: h["q_fdr"] for h in ht}
+    p_arr = np.array([h["p_raw"] for h in ht])
+    q_arr = np.array([h["q_fdr"] for h in ht])
+    order = np.argsort(p_arr, kind="mergesort")
+    assert np.all(np.diff(q_arr[order]) >= -1e-4)
+    for grp in POSITION_GROUPS:
+        assert m["positional_encoders"][grp]["q_fdr_vs_stopwatch"] == q_map[f"pos_{grp}_v4_vs_stopwatch"]
+
+
+def test_peak_saliency_window_with_leading_padding_and_gaps() -> None:
+    """Verify extract_peak_saliency_window handles leading zero masks and internal gaps."""
+    alpha = np.array([0.99, 0.99, 0.05, 0.25, 0.45, 0.20, 0.05, 0.99], dtype=np.float64)
+    mask = np.array([0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0], dtype=np.float32)
+    win = extract_peak_saliency_window(alpha, mask, window_frames=3, dt_sec=0.1)
+    assert win["start_frame"] == 3
+    assert win["end_frame"] == 5
+    assert win["peak_frame"] == 4
+    assert win["attention_mass"] == pytest.approx(0.90, abs=1e-4)
+
+    # Empty mask returns zero-safe dict
+    empty = extract_peak_saliency_window(alpha, np.zeros_like(mask), window_frames=3, dt_sec=0.1)
+    assert empty["attention_mass"] == 0.0
+    assert empty["peak_weight"] == 0.0
+
+
+def test_bootstrap_and_encoder_invalid_input_guards() -> None:
+    """Verify edge guards: NaN filtering, constant targets, short sequences L < K, and invalid arguments."""
+    y = np.array([1.0, 2.0, np.nan, 3.0, 4.0, 5.0])
+    p_full = np.array([1.1, 1.9, 0.0, 3.1, 3.9, 5.1])
+    p_base = np.array([1.8, 2.2, 0.0, 2.8, 3.5, 4.2])
+    res = bootstrap_ci_and_lift(y, p_full, baseline_pred=p_base, n_boot=100, seed=7)
+    assert res["n"] == 5
+    assert math.isfinite(res["cv_r2"])
+    assert math.isfinite(res["partial_r2"])
+
+    with pytest.raises(ValueError):
+        bootstrap_ci_and_lift(np.array([1.0]), np.array([1.0]), n_boot=50)
+    with pytest.raises(ValueError):
+        TemporalAttentionPool1D(d_model=16, n_heads=3)
+    with pytest.raises(ValueError):
+        MultiScalePositionalEncoderNumpy(position_group="INVALID_POS")
+    with pytest.raises(ValueError):
+        PositionalResidualMetaFusion(residual_blend=-0.2).fit_predict_fold(
+            np.ones((25, 2)), np.ones((5, 2)), np.ones((25, 2)), np.ones((5, 2)),
+            np.full(25, "DB"), np.full(5, "DB"), np.ones(25),
+        )
+
+    # Sequence shorter than largest kernel (L=3 < K=9) must still run cleanly
+    short_x = np.ones((2, N_ENRICHED_CHANNELS, 3), dtype=np.float32)
+    short_m = np.ones((2, 3), dtype=np.float32)
+    out = MultiScalePositionalEncoderNumpy(position_group="DL_EDGE").forward(short_x, short_m)
+    assert out["alpha_t"].shape == (2, 3)
+    assert np.allclose(out["alpha_t"].sum(axis=-1), 1.0, atol=1e-5)
