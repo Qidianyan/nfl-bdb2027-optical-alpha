@@ -443,129 +443,130 @@ def _capture_v6_filmroom_live_assets() -> dict[str, list[Image.Image]]:
             headless=True,
             args=["--use-mock-keychain", "--password-store=basic"],
         )
-        context = browser.new_context(
-            viewport={"width": W, "height": H},
-            device_scale_factor=1,
-        )
-        page = context.new_page()
-        page.goto(url, wait_until="load")
-        page.evaluate("() => document.fonts ? document.fonts.ready : Promise.resolve()")
+        try:
+            context = browser.new_context(
+                viewport={"width": W, "height": H},
+                device_scale_factor=1,
+            )
+            page = context.new_page()
+            page.goto(url, wait_until="load")
+            page.evaluate("() => document.fonts ? document.fonts.ready : Promise.resolve()")
 
-        # Broadcast-compact framing override so entire interactive studio fits inside y=66..938 above subtitle safe zone
-        page.add_style_tag(
-            content="""
-            html, body { background: #FFFFFF !important; overflow: hidden !important; }
-            .masthead { display: none !important; }
-            .page-shell { max-width: 1760px !important; padding-inline: 48px !important; }
-            #saliency-studio { padding-top: 72px !important; padding-bottom: 240px !important; border-bottom: none !important; }
-            #saliency-studio .section-head { margin-bottom: 8px !important; display: flex !important; align-items: baseline !important; gap: 20px !important; }
-            #saliency-studio h2 { font-size: 26px !important; }
-            #saliency-studio .section-lead { margin: 0 !important; font-size: 15px !important; }
-            .tablist-row { margin-bottom: 8px !important; }
-            .matchup-tab { min-block-size: 36px !important; padding: 6px 14px !important; }
-            .matchup-brief { margin-bottom: 8px !important; gap: 12px !important; }
-            .player-strip { padding: 7px 12px !important; }
-            .filmroom-grid { gap: 16px !important; }
-            .canvas-panel { padding: 10px 12px !important; }
-            .studio-canvas { max-height: 410px !important; }
-            .control-bar { margin-top: 8px !important; padding: 7px 12px !important; }
-            .telemetry-wrap { margin-top: 8px !important; }
-            .data-table caption { padding: 5px 10px !important; }
-            .data-table th, .data-table td { padding: 5px 10px !important; }
+            # Broadcast-compact framing override so entire interactive studio fits inside y=66..938 above subtitle safe zone
+            page.add_style_tag(
+                content="""
+                html, body { background: #FFFFFF !important; overflow: hidden !important; }
+                .masthead { display: none !important; }
+                .page-shell { max-width: 1760px !important; padding-inline: 48px !important; }
+                #saliency-studio { padding-top: 72px !important; padding-bottom: 240px !important; border-bottom: none !important; }
+                #saliency-studio .section-head { margin-bottom: 8px !important; display: flex !important; align-items: baseline !important; gap: 20px !important; }
+                #saliency-studio h2 { font-size: 26px !important; }
+                #saliency-studio .section-lead { margin: 0 !important; font-size: 15px !important; }
+                .tablist-row { margin-bottom: 8px !important; }
+                .matchup-tab { min-block-size: 36px !important; padding: 6px 14px !important; }
+                .matchup-brief { margin-bottom: 8px !important; gap: 12px !important; }
+                .player-strip { padding: 7px 12px !important; }
+                .filmroom-grid { gap: 16px !important; }
+                .canvas-panel { padding: 10px 12px !important; }
+                .studio-canvas { max-height: 410px !important; }
+                .control-bar { margin-top: 8px !important; padding: 7px 12px !important; }
+                .telemetry-wrap { margin-top: 8px !important; }
+                .data-table caption { padding: 5px 10px !important; }
+                .data-table th, .data-table td { padding: 5px 10px !important; }
 
-            #draft-ev { padding-top: 76px !important; padding-bottom: 240px !important; border-bottom: none !important; }
-            #draft-ev .section-head { margin-bottom: 12px !important; display: flex !important; align-items: baseline !important; gap: 20px !important; }
-            #draft-ev h2 { font-size: 28px !important; }
-            #draft-ev .section-lead { margin: 0 !important; }
-            .ev-workspace { gap: 28px !important; }
-            .ev-controls-col { gap: 14px !important; }
-            .ev-output-col { gap: 12px !important; }
-            #draftEvCanvas { max-height: 320px !important; }
-            .comp-card { padding: 10px 12px !important; }
-            """
-        )
+                #draft-ev { padding-top: 76px !important; padding-bottom: 240px !important; border-bottom: none !important; }
+                #draft-ev .section-head { margin-bottom: 12px !important; display: flex !important; align-items: baseline !important; gap: 20px !important; }
+                #draft-ev h2 { font-size: 28px !important; }
+                #draft-ev .section-lead { margin: 0 !important; }
+                .ev-workspace { gap: 28px !important; }
+                .ev-controls-col { gap: 14px !important; }
+                .ev-output-col { gap: 12px !important; }
+                #draftEvCanvas { max-height: 320px !important; }
+                .comp-card { padding: 10px 12px !important; }
+                """
+            )
 
-        # --- PART A: Live 10 Hz Saliency Matchups (all 4 position groups) ---
-        page.evaluate("() => { const el = document.getElementById('saliency-studio'); window.scrollTo({ top: el.offsetTop, behavior: 'instant' }); }")
-        page.wait_for_timeout(120)
+            # --- PART A: Live 10 Hz Saliency Matchups (all 4 position groups) ---
+            page.evaluate("() => { const el = document.getElementById('saliency-studio'); window.scrollTo({ top: el.offsetTop, behavior: 'instant' }); }")
+            page.wait_for_timeout(120)
 
-        matchup_specs = [
-            (0, 64, "Act II · Live 10 Hz Ghost Replay & Dual-Head Attention (WR/TE)", "Puka Nacua Opt-Out · Peak 7.7-8.0s · +$49.0M EV", C_GREEN),
-            (1, 24, "Act II · Live 10 Hz Dual-Head Attention (DB 90-Deg Break)", "Jaylon Jones vs Cam Smith · DB Partial R² +0.1236", C_GREEN),
-            (2, 24, "Act II · Live 10 Hz Dual-Head Attention (DL/EDGE Pass Rush)", "Tuli Tuipulotu · DL/EDGE LOYO R² +0.7045", C_RED),
-            (3, 22, "Act II · Live 10 Hz Dual-Head Attention (OL Pass-Pro Mirror)", "Mason McCormick (+$29.8M EV) vs Will Campbell", C_GOLD),
-        ]
+            matchup_specs = [
+                (0, 64, "Act II · Live 10 Hz Ghost Replay & Dual-Head Attention (WR/TE)", "Puka Nacua Opt-Out · Peak 7.7-8.0s · +$49.0M EV", C_GREEN),
+                (1, 24, "Act II · Live 10 Hz Dual-Head Attention (DB 90-Deg Break)", "Jaylon Jones vs Cam Smith · DB Partial R² +0.1236", C_GREEN),
+                (2, 24, "Act II · Live 10 Hz Dual-Head Attention (DL/EDGE Pass Rush)", "Tuli Tuipulotu · DL/EDGE LOYO R² +0.7045", C_RED),
+                (3, 22, "Act II · Live 10 Hz Dual-Head Attention (OL Pass-Pro Mirror)", "Mason McCormick (+$29.8M EV) vs Will Campbell", C_GOLD),
+            ]
 
-        tabs = page.locator('[role="tab"]')
-        for m_idx, n_steps, kicker, pill, acc in matchup_specs:
-            tabs.nth(m_idx).click()
-            page.locator('input[name="attn-head"][value="aw"]').check()
-            page.wait_for_timeout(60)
-            max_idx = int(page.evaluate("() => parseInt(document.getElementById('frameScrubber').max, 10)"))
-            indices = [int(round(i * max_idx / max(1, n_steps - 1))) for i in range(n_steps)]
-            frames_m: list[Image.Image] = []
-            for step_i, f_idx in enumerate(indices):
-                # On WR/TE Puka Nacua matchup, switch to Head 2 (Brake) during the final third to showcase dual-head glow
-                if m_idx == 0 and step_i == int(n_steps * 0.65):
-                    page.locator('input[name="attn-head"][value="h2"]').check()
+            tabs = page.locator('[role="tab"]')
+            for m_idx, n_steps, kicker, pill, acc in matchup_specs:
+                tabs.nth(m_idx).click()
+                page.locator('input[name="attn-head"][value="aw"]').check()
+                page.wait_for_timeout(60)
+                max_idx = int(page.evaluate("() => parseInt(document.getElementById('frameScrubber').max, 10)"))
+                indices = [int(round(i * max_idx / max(1, n_steps - 1))) for i in range(n_steps)]
+                frames_m: list[Image.Image] = []
+                for step_i, f_idx in enumerate(indices):
+                    # On WR/TE Puka Nacua matchup, switch to Head 2 (Brake) during the final third to showcase dual-head glow
+                    if m_idx == 0 and step_i == int(n_steps * 0.65):
+                        page.locator('input[name="attn-head"][value="h2"]').check()
+                    page.evaluate(
+                        """(idx) => {
+                            const s = document.getElementById('frameScrubber');
+                            s.value = String(idx);
+                            s.dispatchEvent(new Event('input', { bubbles: true }));
+                        }""",
+                        f_idx,
+                    )
+                    buf = page.screenshot(type="jpeg", quality=94)
+                    im = Image.open(BytesIO(buf)).convert("RGB")
+                    frames_m.append(_stamp_studio_chrome(im, kicker, pill, accent=acc))
+                assets[f"matchup_{m_idx}"] = frames_m
+                print(f"[PW V6] Matchup {m_idx}: captured {len(frames_m)} live 10 Hz Dual-Head Saliency frames (max_f={max_idx})")
+
+            # --- PART B: Live GM Draft-Room Surplus EV Calculator Slider Drag & Preset Sweep ---
+            page.evaluate("() => { const el = document.getElementById('draft-ev'); window.scrollTo({ top: el.offsetTop, behavior: 'instant' }); }")
+            page.wait_for_timeout(120)
+
+            ev_frames: list[Image.Image] = []
+            # Sequence: (pos_group, pick, optical_z, badge_text, accent)
+            ev_keyframes: list[tuple[str, int, float, str, tuple[int, int, int]]] = []
+            # 1) Start at Puka Nacua exact comp (#177, +0.6σ -> 98% match +$49.0M) and sweep optical alpha +0.6 -> +2.0σ
+            for z_val in np.linspace(0.6, 2.0, 14):
+                ev_keyframes.append(("WR_TE", 177, round(float(z_val), 1), "WR/TE Pick #177 · Puka Nacua 98% Comp (+$49.0M)", C_GREEN))
+            # 2) Switch to DL/EDGE & drag pick #120 -> #54 (Tuli Tuipulotu) at +1.4σ
+            for pk_val in np.linspace(120, 54, 12):
+                ev_keyframes.append(("DL_EDGE", int(round(pk_val)), 1.4, "DL/EDGE LOYO +0.7045 · Live Surplus EV Arbitrage", C_GREEN))
+            # 3) Switch to DB Round 1 Trap warning (#24, sweeping +0.2σ -> -1.5σ -> crimson trap risk!)
+            for z_val in np.linspace(0.2, -1.5, 14):
+                ev_keyframes.append(("DB", 24, round(float(z_val), 1), "DB Pick #24 · Stopwatch Trap Risk (+45.5% Bust)", C_RED))
+
+            for grp, pk, oz, pill, acc in ev_keyframes:
+                page.locator(f'input[name="ev-pos-group"][value="{grp}"]').check()
                 page.evaluate(
-                    """(idx) => {
-                        const s = document.getElementById('frameScrubber');
-                        s.value = String(idx);
-                        s.dispatchEvent(new Event('input', { bubbles: true }));
+                    """([pk, oz]) => {
+                        const p = document.getElementById('draftPickSlider');
+                        const o = document.getElementById('opticalAlphaSlider');
+                        p.value = String(pk);
+                        p.dispatchEvent(new Event('input', { bubbles: true }));
+                        o.value = String(oz);
+                        o.dispatchEvent(new Event('input', { bubbles: true }));
                     }""",
-                    f_idx,
+                    [pk, oz],
                 )
                 buf = page.screenshot(type="jpeg", quality=94)
                 im = Image.open(BytesIO(buf)).convert("RGB")
-                frames_m.append(_stamp_studio_chrome(im, kicker, pill, accent=acc))
-            assets[f"matchup_{m_idx}"] = frames_m
-            print(f"[PW V6] Matchup {m_idx}: captured {len(frames_m)} live 10 Hz Dual-Head Saliency frames (max_f={max_idx})")
-
-        # --- PART B: Live GM Draft-Room Surplus EV Calculator Slider Drag & Preset Sweep ---
-        page.evaluate("() => { const el = document.getElementById('draft-ev'); window.scrollTo({ top: el.offsetTop, behavior: 'instant' }); }")
-        page.wait_for_timeout(120)
-
-        ev_frames: list[Image.Image] = []
-        # Sequence: (pos_group, pick, optical_z, badge_text, accent)
-        ev_keyframes: list[tuple[str, int, float, str, tuple[int, int, int]]] = []
-        # 1) Start at Puka Nacua exact comp (#177, +0.6σ -> 98% match +$49.0M) and sweep optical alpha +0.6 -> +2.0σ
-        for z_val in np.linspace(0.6, 2.0, 14):
-            ev_keyframes.append(("WR_TE", 177, round(float(z_val), 1), "WR/TE Pick #177 · Puka Nacua 98% Comp (+$49.0M)", C_GREEN))
-        # 2) Switch to DL/EDGE & drag pick #120 -> #54 (Tuli Tuipulotu) at +1.4σ
-        for pk_val in np.linspace(120, 54, 12):
-            ev_keyframes.append(("DL_EDGE", int(round(pk_val)), 1.4, "DL/EDGE LOYO +0.7045 · Live Surplus EV Arbitrage", C_GREEN))
-        # 3) Switch to DB Round 1 Trap warning (#24, sweeping +0.2σ -> -1.5σ -> crimson trap risk!)
-        for z_val in np.linspace(0.2, -1.5, 14):
-            ev_keyframes.append(("DB", 24, round(float(z_val), 1), "DB Pick #24 · Stopwatch Trap Risk (+45.5% Bust)", C_RED))
-
-        for grp, pk, oz, pill, acc in ev_keyframes:
-            page.locator(f'input[name="ev-pos-group"][value="{grp}"]').check()
-            page.evaluate(
-                """([pk, oz]) => {
-                    const p = document.getElementById('draftPickSlider');
-                    const o = document.getElementById('opticalAlphaSlider');
-                    p.value = String(pk);
-                    p.dispatchEvent(new Event('input', { bubbles: true }));
-                    o.value = String(oz);
-                    o.dispatchEvent(new Event('input', { bubbles: true }));
-                }""",
-                [pk, oz],
-            )
-            buf = page.screenshot(type="jpeg", quality=94)
-            im = Image.open(BytesIO(buf)).convert("RGB")
-            ev_frames.append(
-                _stamp_studio_chrome(
-                    im,
-                    "Act III · Live GM Draft-Room 4-Yr Rookie Surplus EV Simulator",
-                    pill,
-                    accent=acc,
+                ev_frames.append(
+                    _stamp_studio_chrome(
+                        im,
+                        "Act III · Live GM Draft-Room 4-Yr Rookie Surplus EV Simulator",
+                        pill,
+                        accent=acc,
+                    )
                 )
-            )
-        assets["draft_ev"] = ev_frames
-        print(f"[PW V6] GM Draft EV Calculator: captured {len(ev_frames)} live interactive slider frames")
-
-        browser.close()
+            assets["draft_ev"] = ev_frames
+            print(f"[PW V6] GM Draft EV Calculator: captured {len(ev_frames)} live interactive slider frames")
+        finally:
+            browser.close()
 
     return assets
 
@@ -615,7 +616,7 @@ def render_reel(out_mp4: Path = OUT_MP4, out_srt: Path = OUT_SRT) -> None:
         fig3_slide = _compose_figure_slide(
             FIGURES / "fig3_draft_capital_residual_alpha.png",
             "Act III · Draft-Capital Residual Alpha Across 510 Rookies",
-            "33 Day-3 Optical Gems · Avg +$24.9M 4-Yr EV",
+            "33 Day-3 Gems (Pick #100+) · Avg +$24.9M 4-Yr EV",
             C_GOLD,
         )
         fig5_slide = _compose_figure_slide(

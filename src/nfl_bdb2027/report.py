@@ -106,7 +106,10 @@ def write_kaggle_writeup_md(
     n_40_out = inventory["forty_opt_out_count"]
     n_3c_out = inventory["three_cone_opt_out_count"]
     n_ss_out = inventory["short_shuttle_opt_out_count"]
-    pct_agility_blind = 100.0 * (1.0 - inventory["combine_tracking_coverage"]["players_with_any_agility_tracking"] / n_total)
+    pct_agility_blind = 100.0 * (
+        1.0 - inventory["combine_tracking_coverage"]["players_with_any_agility_tracking"] / max(n_total, 1)
+    )
+    pct_40_out = round(100.0 * n_40_out / max(n_total, 1))
     gt_rows = inventory["game_tracking_total_rows"]
     ct_rows = inventory["combine_tracking_player_rows"]
     pp_rows = inventory["player_play_rows"]
@@ -156,12 +159,21 @@ def write_kaggle_writeup_md(
 
     # V4-V6 Positional Multi-Scale Dual-Head Attention sections (100% live from real_data_metrics_v4_gpu.json)
     v4_row_b1 = ""
+    v4_baseline_c_row = ""
     v4_headline_1 = ""
     v4_pos_section = ""
     v4_saliency_ev_section = ""
-    title_edition = "V6 Championship Edition" if v4_metrics else "V2 Champion"
+    has_v4 = bool(v4_metrics)
+    title_edition = "V6 Championship Edition" if has_v4 else "V2 Champion"
+    subtitle_gpu_tag = ""
+    dl_e: dict[str, Any] = {}
+    wr_e: dict[str, Any] = {}
+    db_e: dict[str, Any] = {}
+    ol_e: dict[str, Any] = {}
+    ov: dict[str, Any] = {}
+    gpu4: dict[str, Any] = {}
 
-    if v4_metrics:
+    if has_v4 and v4_metrics is not None:
         ov = v4_metrics["overall_v4_oof"]
         sw4 = v4_metrics["stopwatch_baseline"]
         v24 = v4_metrics["v2_baseline"]
@@ -172,7 +184,17 @@ def write_kaggle_writeup_md(
         ol_e = pe["OL_LB"]
         gpu4 = v4_metrics["gpu_run"]
         loyo_ratio = ov["temporal_loyo_r2"] / max(sw4["temporal_loyo_r2"], 1e-6)
+        ht_by_id = {
+            t["test_id"]: t
+            for t in v4_metrics.get("statistical_rigor", {}).get("hypothesis_tests", [])
+        }
+        q_loyo_v2 = float(ht_by_id.get("overall_v4_vs_v2_temporal_loyo", {}).get("q_fdr", ov.get("q_fdr_vs_v2", 0.0)))
+        n_gpu_models = int(gpu4.get("total_gpu_models_trained", 328))
+        subtitle_gpu_tag = f", {n_gpu_models} Colab {gpu4.get('gpu_name', 'NVIDIA L4')} GPU Models & Benjamini-Hochberg FDR Verified"
 
+        v4_baseline_c_row = (
+            f"| **Baseline C:** Draft Capital + Stopwatch | `{sw4['draft_plus_stopwatch_cv_r2']:+.4f}` | — | — | — | Reference (Draft Capital + Stopwatch) |\n"
+        )
         v4_row_b1 = (
             f"| **V4–V6 Champion Fusion:** **4-Position Multi-Scale 1D-CNN + Dual-Head Attn + Physics** | "
             f"**`{ov['cv_r2']:+.4f}`** [{ov['cv_r2_ci95'][0]:+.4f}, {ov['cv_r2_ci95'][1]:+.4f}] | "
@@ -181,16 +203,16 @@ def write_kaggle_writeup_md(
             f"**`{ov['temporal_loyo_rho']:+.4f}`** | "
             f"**vs Stopwatch: ΔR² `{ov['delta_r2_vs_stopwatch']:+.4f}`, Partial R² `{ov['partial_r2_vs_stopwatch']:+.4f}` (`q_FDR={ov['q_fdr_vs_stopwatch']:.4f}`); "
             f"vs Draft+SW: Partial R² `{ov['partial_r2_vs_draft_stopwatch']:+.4f}` (`q_FDR={ov['q_fdr_vs_draft_stopwatch']:.4f}`); "
-            f"vs V2 LOYO: ΔR² `{ov['delta_r2_vs_v2_temporal']:+.4f}` (`q_FDR=0.0264`)** |"
+            f"vs V2 LOYO: ΔR² `{ov['delta_r2_vs_v2_temporal']:+.4f}` (`q_FDR={q_loyo_v2:.4f}`)** |"
         )
 
         v4_headline_1 = (
-            f"1. **V4–V6 Position-Specific Multi-Scale Attention Sets New Zero-Leakage SOTA (`n = {ov['n']}`, {gpu4.get('total_gpu_models_trained', 328)} Colab NVIDIA L4 Models):** "
+            f"1. **V4–V6 Position-Specific Multi-Scale Attention Sets New Zero-Leakage SOTA (`n = {ov['n']}`, {n_gpu_models} Colab {gpu4.get('gpu_name', 'NVIDIA L4')} Models):** "
             f"Replacing a single shared encoder with **4 dedicated position-group encoders** (`WR_TE`, `DB`, `DL_EDGE`, `OL_LB`; kernels `k = 3, 5, 9` [0.3s / 0.5s / 0.9s] + 2-head Burst/Brake temporal attention) "
             f"pushes Overall Stratified 5-Fold **`R²` from V2 `{v24['cv_r2']:+.4f}` to `{ov['cv_r2']:+.4f}`** (`95% CI [{ov['cv_r2_ci95'][0]:+.4f}, {ov['cv_r2_ci95'][1]:+.4f}]`, `Spearman ρ = {ov['spearman_rho']:+.4f}`) "
             f"and lifts unseen-year **Temporal LOYO `R²` from V2 `{v24['temporal_loyo_r2']:+.4f}` to `{ov['temporal_loyo_r2']:+.4f}`** "
-            f"(`95% CI [{ov['temporal_loyo_ci95'][0]:+.4f}, {ov['temporal_loyo_ci95'][1]:+.4f}]`, `ΔR² = {ov['delta_r2_vs_v2_temporal']:+.4f}` vs V2, `q_FDR = 0.0264`; **{loyo_ratio:.2f}×** Stopwatch `{sw4['temporal_loyo_r2']:+.4f}`). "
-            f"Crucially, V4–V6 delivers **`Partial R² = {ov['partial_r2_vs_stopwatch']:+.4f}`** over Stopwatch (`q_FDR = {ov['q_fdr_vs_stopwatch']:.4f}`) and **`Partial R² = {ov['partial_r2_vs_draft_stopwatch']:+.4f}`** beyond **Draft Capital + Stopwatch** (`[+{ov['partial_r2_vs_draft_stopwatch_ci95'][0]:.4f}, +{ov['partial_r2_vs_draft_stopwatch_ci95'][1]:.4f}]`, **`q_FDR = {ov['q_fdr_vs_draft_stopwatch']:.4f}`**).\n"
+            f"(`95% CI [{ov['temporal_loyo_ci95'][0]:+.4f}, {ov['temporal_loyo_ci95'][1]:+.4f}]`, `ΔR² = {ov['delta_r2_vs_v2_temporal']:+.4f}` vs V2, `q_FDR = {q_loyo_v2:.4f}`; **{loyo_ratio:.2f}×** Stopwatch `{sw4['temporal_loyo_r2']:+.4f}`). "
+            f"Crucially, V4–V6 delivers **`Partial R² = {ov['partial_r2_vs_stopwatch']:+.4f}`** over Stopwatch (`q_FDR = {ov['q_fdr_vs_stopwatch']:.4f}`) and **`Partial R² = {ov['partial_r2_vs_draft_stopwatch']:+.4f}`** beyond **Draft Capital + Stopwatch** (`[{ov['partial_r2_vs_draft_stopwatch_ci95'][0]:+.4f}, {ov['partial_r2_vs_draft_stopwatch_ci95'][1]:+.4f}]`, **`q_FDR = {ov['q_fdr_vs_draft_stopwatch']:.4f}`**).\n"
             f"2. **Breakthrough Position-Specific Generalization — `DL_EDGE` Hits `R² = {dl_e['cv_r2']:+.4f}` & Temporal LOYO `R² = {dl_e['temporal_loyo_r2']:+.4f}`:** "
             f"On Defensive Line / Edge (`n = {dl_e['n_players']}`), the dedicated V4 encoder leaps from Stopwatch `{dl_e['stopwatch_r2']:+.4f}` and V2 `{dl_e['v2_unified_r2']:+.4f}` to **`R² = {dl_e['cv_r2']:+.4f}`** (`[{dl_e['cv_r2_ci95'][0]:+.4f}, {dl_e['cv_r2_ci95'][1]:+.4f}]`, `ρ = {dl_e['spearman_rho']:+.4f}`) and **`Temporal LOYO R² = {dl_e['temporal_loyo_r2']:+.4f}`** (`Partial R² = {dl_e['partial_r2_vs_stopwatch']:+.4f}`, **`q_FDR = {dl_e['q_fdr_vs_stopwatch']:.4f}`**; vs V2 `p = {dl_e['p_vs_v2']:.4f}`). "
             f"On Defensive Backs (`n = {db_e['n_players']}`), optical tracking lifts R² by **`{db_e['delta_r2_vs_stopwatch']:+.4f}`** (`{db_e['stopwatch_r2']:+.4f}` → `{db_e['cv_r2']:+.4f}`, **`Partial R² = {db_e['partial_r2_vs_stopwatch']:+.4f}`, `q_FDR = {db_e['q_fdr_vs_stopwatch']:.4f}`**)."
@@ -215,41 +237,72 @@ def write_kaggle_writeup_md(
             )
 
         v4_pos_section = (
-            "\n### Table 1B: V4–V6 Position-Specific Multi-Scale Attention Encoders & Benjamini-Hochberg FDR Rigor (`n = 497`)\n\n"
+            f"\n### Table 1B: V4–V6 Position-Specific Multi-Scale Attention Encoders & Benjamini-Hochberg FDR Rigor (`n = {ov['n']}`)\n\n"
             "| Position Encoder | `n` | Stopwatch R² | V2 Unified R² | V4 OOF R² [95% CI] | Temporal LOYO R² | Partial R² vs SW | `q_FDR` | Peak 0.3s Saliency Window & Top MIL Drill |\n"
             "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |\n"
             + "\n".join(pos_rows)
             + "\n"
         )
 
-        # Build Section 4B: 0.1s Dual-Head Attention Saliency + GM Draft-Room Surplus EV Quantitative Summary
-        ev_rows_md = ""
-        day3_swing_str = "+$6.2M"
-        mean_bust_red_str = "-20.4%"
-        if ev_bundle and ev_bundle.get("prospects"):
-            groups = list(ev_bundle["curves_by_group"].keys())
-            n_pts = len(ev_bundle["curves_by_group"][groups[0]]["elite_opt_p15"])
-            day3_el = sum(
-                ev_bundle["curves_by_group"][g]["elite_opt_p15"][j]["surplus_m"]
-                for g in groups
-                for j in range(n_pts)
-                if ev_bundle["curves_by_group"][g]["elite_opt_p15"][j]["pick"] >= 100
-            ) / max(1, sum(1 for g in groups for j in range(n_pts) if ev_bundle["curves_by_group"][g]["elite_opt_p15"][j]["pick"] >= 100))
-            day3_tr = sum(
-                ev_bundle["curves_by_group"][g]["trap_opt_m15"][j]["surplus_m"]
-                for g in groups
-                for j in range(n_pts)
-                if ev_bundle["curves_by_group"][g]["trap_opt_m15"][j]["pick"] >= 100
-            ) / max(1, sum(1 for g in groups for j in range(n_pts) if ev_bundle["curves_by_group"][g]["trap_opt_m15"][j]["pick"] >= 100))
-            day3_swing_str = f"+${day3_el - day3_tr:.1f}M"
-            mean_br = sum(
-                ev_bundle["curves_by_group"][g]["elite_opt_p15"][j]["bust_red_pct"]
-                for g in groups
-                for j in range(n_pts)
-            ) / max(1, len(groups) * n_pts)
-            mean_bust_red_str = f"-{mean_br:.1f}%"
+        # Auto-calibrate GM Draft-Room EV bundle from real master_df if caller (e.g. cli.py) omitted ev_bundle
+        resolved_ev_bundle = ev_bundle
+        if resolved_ev_bundle is None and master_df is not None and not master_df.empty:
+            req_ev_cols = {"nfl_id", "combine_position", "snaps_per_season", "draft_overall_pick"}
+            if req_ev_cols.issubset(set(master_df.columns)):
+                try:
+                    from .config import ARTIFACTS_DIR
+                    from .draft_ev import DraftSurplusEVEngine
+                    import numpy as np
 
-            by_id = {p["id"]: p for p in ev_bundle["prospects"]}
+                    oof_scores: dict[int, np.ndarray] = {}
+                    npz_p = ARTIFACTS_DIR / "v4_positional_attn_gpu_oof.npz"
+                    if npz_p.exists():
+                        z = np.load(npz_p, allow_pickle=True)
+                        for ri, oi in enumerate(z["v4_b1_strat_sub_indices"]):
+                            vec = np.asarray(z["v4_b1_strat_oof_feats"][ri], dtype=np.float64)
+                            if np.all(np.isfinite(vec)):
+                                oof_scores[int(z["nfl_ids"][int(oi)])] = vec
+                    resolved_ev_bundle = DraftSurplusEVEngine.fit(
+                        master_df, v4_oof_scores=oof_scores
+                    ).export_ui_and_chart_bundle()
+                except Exception:
+                    resolved_ev_bundle = None
+
+        # Build Section 5: 0.1s Dual-Head Attention Saliency + GM Draft-Room Surplus EV Quantitative Summary
+        ev_rows_md = ""
+        ev_arbitrage_bullet = ""
+        curves_by_group = (resolved_ev_bundle or {}).get("curves_by_group") or {}
+        prospects_list = (resolved_ev_bundle or {}).get("prospects") or []
+        if prospects_list and curves_by_group:
+            groups = [g for g in curves_by_group if curves_by_group[g].get("elite_opt_p15")]
+            if groups:
+                n_pts = len(curves_by_group[groups[0]]["elite_opt_p15"])
+                day3_el_vals = [
+                    curves_by_group[g]["elite_opt_p15"][j]["surplus_m"]
+                    for g in groups
+                    for j in range(n_pts)
+                    if curves_by_group[g]["elite_opt_p15"][j]["pick"] >= 100
+                ]
+                day3_tr_vals = [
+                    curves_by_group[g]["trap_opt_m15"][j]["surplus_m"]
+                    for g in groups
+                    for j in range(n_pts)
+                    if curves_by_group[g]["trap_opt_m15"][j]["pick"] >= 100
+                ]
+                all_br_vals = [
+                    curves_by_group[g]["elite_opt_p15"][j]["bust_red_pct"]
+                    for g in groups
+                    for j in range(n_pts)
+                ]
+                if day3_el_vals and day3_tr_vals and all_br_vals:
+                    day3_swing = (sum(day3_el_vals) / len(day3_el_vals)) - (sum(day3_tr_vals) / len(day3_tr_vals))
+                    mean_br = sum(all_br_vals) / len(all_br_vals)
+                    ev_arbitrage_bullet = (
+                        f"\n- **Front-Office Cap Arbitrage:** Across Rounds 4–7 (Day 3), elite optical prospects (`+1.5σ`) generate **`+${day3_swing:.1f}M`** "
+                        f"more expected 4-year rookie contract surplus than `-1.5σ` stopwatch traps, while cutting bust risk by **`-{mean_br:.1f}%`** across Picks `#1–#257`."
+                    )
+
+            by_id = {p["id"]: p for p in prospects_list}
             ev_spotlights = [
                 (56042, "WR/TE Optical Gem"),
                 (55919, "DL/EDGE Optical Gem"),
@@ -268,12 +321,14 @@ def write_kaggle_writeup_md(
                     rows_ev.append(
                         f"| **{pr['name']}** | {role_lbl} | {pr['yr']} {pr['pos']} | {rd_s} | {f40_s} | `{pr['oz']:+.2f}σ` | {pr['snaps']:.0f} | **`{pr['surplus']:+.1f}M`** |"
                     )
-            ev_rows_md = (
-                "\n| Prospect | Front-Office Archetype | Class & Pos | Draft Slot | 40-Yd | V4/OOF Optical α | Snaps/Yr | Realized 4-Yr Surplus EV ($M) |\n"
-                "| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: |\n"
-                + "\n".join(rows_ev)
-                + "\n"
-            )
+            if rows_ev:
+                ev_rows_md = (
+                    "\n### B. Realized 4-Year Rookie Contract Surplus EV ($M) on Named 2023–2025 Prospects\n\n"
+                    "| Prospect | Front-Office Archetype | Class & Pos | Draft Slot | 40-Yd | V4/OOF Optical α | Snaps/Yr | Realized 4-Yr Surplus EV ($M) |\n"
+                    "| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: |\n"
+                    + "\n".join(rows_ev)
+                    + "\n"
+                )
 
         sal_match_md = ""
         if v4_saliency and v4_saliency.get("matchups"):
@@ -286,29 +341,26 @@ def write_kaggle_writeup_md(
                     f"`{gp['start_sec']:.1f}–{gp['end_sec']:.1f}s` (`{gp['attention_mass']*100:.1f}%` mass, peak `{gp['peak_weight']:.4f}`) | "
                     f"`{tp['start_sec']:.1f}–{tp['end_sec']:.1f}s` (`{tp['attention_mass']*100:.1f}%` mass) |"
                 )
-            sal_match_md = (
-                "\n| Position Group | Gem vs Peer Matchup | Shared Combine Drill | Gem Peak 0.3s Attention Window | Peer Peak 0.3s Window |\n"
-                "| :--- | :--- | :--- | :--- | :--- |\n"
-                + "\n".join(m_lines)
-                + "\n"
-            )
+            if m_lines:
+                sal_match_md = (
+                    "\n### A. Real 0.1s Dual-Head Temporal Attention Windows (4 Position Matchups)\n\n"
+                    "| Position Group | Gem vs Peer Matchup | Shared Combine Drill | Gem Peak 0.3s Attention Window | Peer Peak 0.3s Window |\n"
+                    "| :--- | :--- | :--- | :--- | :--- |\n"
+                    + "\n".join(m_lines)
+                    + "\n"
+                )
 
         v4_saliency_ev_section = f"""
 ---
 
 ## 5. Interpretable 0.1s Dual-Head Attention & NFL GM Draft-Room Surplus EV (`draft_ev.py`)
 
-To translate our zero-leakage V4–V6 positional encoders directly into NFL draft-room cap decisions, we pair **out-of-fold 0.1s dual-head temporal attention** (`Head 1: Explosive Burst` vs `Head 2: Deceleration/Braking`, $\\sum_t \\alpha_t = 1.0$) with an empirical **GM Draft-Room Surplus EV Engine** (`src/nfl_bdb2027/draft_ev.py`) calibrated on all **510 official rookies** and official NFL CBA 4-year rookie contract slot anchors (`Pick #1 = $39.49M` strictly monotonic down to `Pick #257 = $3.96M`).
+To translate our zero-leakage V4–V6 positional encoders directly into NFL draft-room cap decisions, we pair **out-of-fold 0.1s dual-head temporal attention** (`Head 1: Explosive Burst` vs `Head 2: Deceleration/Braking`, $\\sum_t \\alpha_t = 1.0$) with an empirical **GM Draft-Room Surplus EV Engine** (`src/nfl_bdb2027/draft_ev.py`) calibrated on all **{n_total} official rookies** and official NFL CBA 4-year rookie contract slot anchors (`Pick #1 = $39.49M` strictly monotonic down to `Pick #257 = $3.96M`).
 
 ![Figure 6: V4 0.1s Temporal Attention Saliency and GM Draft-Room Surplus EV](figures/fig6_temporal_attention_saliency_and_draft_ev.png)
 
-- **Exact Dollar Conservation Law:** $\\text{{Surplus EV}}(\\text{{pos}}, p, \\alpha) \\equiv \\widehat{{\\text{{Production}}}}_{{4\\text{{yr}}}} - \\text{{Contract}}_{{4\\text{{yr}}}}(p)$, with matched-intercept counterfactual bust probability reduction comparing optical-informed risk against slot-only scouting (`α = 0.0`).
-- **Front-Office Cap Arbitrage:** Across Rounds 4–7 (Day 3), elite optical prospects (`+1.5σ`) generate **`{day3_swing_str}`** more expected 4-year rookie contract surplus than `-1.5σ` stopwatch traps, while cutting bust risk by **`{mean_bust_red_str}`** across Picks `#1–#257`.
-
-### A. Real 0.1s Dual-Head Temporal Attention Windows (4 Position Matchups)
-{sal_match_md}
-### B. Realized 4-Year Rookie Contract Surplus EV ($M) on Named 2023–2025 Prospects
-{ev_rows_md}"""
+- **Exact Dollar Conservation Law:** $\\text{{Surplus EV}}(\\text{{pos}}, p, \\alpha) \\equiv \\widehat{{\\text{{Production}}}}_{{4\\text{{yr}}}} - \\text{{Contract}}_{{4\\text{{yr}}}}(p)$, with matched-intercept counterfactual bust probability reduction comparing optical-informed risk against slot-only scouting (`α = 0.0`).{ev_arbitrage_bullet}
+{sal_match_md}{ev_rows_md}"""
 
     v2_phys_row_b2 = ""
     v2_ngs_rows_b2 = ""
@@ -329,10 +381,10 @@ To translate our zero-leakage V4–V6 positional encoders directly into NFL draf
         )
 
     gpu_banner = (
-        f"Trained on **NVIDIA L4 (22.03 GB VRAM)** with PyTorch across **{ct_rows:,}** 10 Hz frames "
-        f"(V2 unified 15-model baseline + V4–V6 **328 position-specific multi-scale dual-head attention models** across `WR_TE`, `DB`, `DL_EDGE`, `OL_LB`) "
+        f"Trained on **{gpu4.get('gpu_name', 'NVIDIA L4')} ({gpu4.get('vram_gb', 22.03):.2f} GB VRAM)** with PyTorch across **{ct_rows:,}** 10 Hz frames "
+        f"(V2 unified 15-model baseline + V4–V6 **{int(gpu4.get('total_gpu_models_trained', 328))} position-specific multi-scale dual-head attention models** across `WR_TE`, `DB`, `DL_EDGE`, `OL_LB`) "
         f"under strictly nested zero-leakage Stratified 5-Fold & Temporal LOYO CV."
-        if v4_metrics
+        if has_v4
         else (
             f"Trained on **{cnn_meta.get('gpu_name', 'NVIDIA L4')} ({cnn_meta.get('vram_gb', 22.5)} GB VRAM)** "
             f"with PyTorch `{cnn_meta.get('pytorch_version', '2.x')}` across **{cnn_meta.get('total_combine_player_frames', ct_rows):,}** "
@@ -353,38 +405,57 @@ To translate our zero-leakage V4–V6 positional encoders directly into NFL draf
     b3_sw = b3_s["stopwatch_anthro"]
     b3_vs_v1_dr2 = b3_best["r2"] - b3_v1["r2"]
     b3_v4_row = ""
-    if v4_metrics:
-        ov = v4_metrics["overall_v4_oof"]
+    if has_v4:
+        b3_cnn_rho = gpu4.get("standalone_gpu_runs", {}).get("v4_b3_dl_strat", {}).get("spearman_rho")
+        rho_cell = f"`{b3_cnn_rho:+.4f}` (CNN)" if b3_cnn_rho is not None else "—"
         b3_v4_row = (
             f"\n| **V4 Positional Attention (DL):** Dedicated `DL_EDGE` Dual-Head Attn | "
             f"`{ov['dl_get_off_v4_r2']:+.4f}` [{ov['dl_get_off_v4_ci95'][0]:+.4f}, {ov['dl_get_off_v4_ci95'][1]:+.4f}] | "
-            f"`+0.73+` | Partial R² vs Stopwatch `{ov['dl_get_off_partial_r2_vs_stopwatch']:+.4f}` (`q_FDR={ov['dl_get_off_q_fdr']:.4f}`) |"
+            f"{rho_cell} | Partial R² vs Stopwatch `{ov['dl_get_off_partial_r2_vs_stopwatch']:+.4f}` (`q_FDR={ov['dl_get_off_q_fdr']:.4f}`) |"
         )
 
     headline_bullets = (
         f"{v4_headline_1}\n"
         f"3. **Pre-Draft Career Value (`n = {n_total}`), DL First-Step Get-Off (`n = {b3_best['n']}`), and Front-Office Snap Lift:** "
         f"Optical fusion lifts **NGS Pre-Draft Scores** on NFL Career Value from Stratified `R² = {b2_s['ngs_only']['r2']:+.4f}` to **`R² = {b2_s[b2_ngs_best_key]['r2']:+.4f}`** (`ρ = {b2_s[b2_ngs_best_key]['spearman_rho']:+.4f}`, `Δρ = {b2_ngs_lift_s['delta_rho_vs_baseline']:+.4f}`, `p = {_fmt_p4(b2_ngs_lift_s['delta_rho_p_one_sided'])}`) and Temporal LOYO `R² = {b2_t['ngs_only']['r2']:+.4f}` to **`R² = {b2_t[b2_ngs_best_key]['r2']:+.4f}`** (`p = {_fmt_p4(b2_ngs_lift_t['delta_r2_p_one_sided'])}`). "
-        f"On **DL/EDGE First-Step Get-Off (`n = {b3_best['n']}`)**, deep optical fusion reaches **`R² = {b3_best['r2']:+.4f}` (`ρ = {b3_best['spearman_rho']:+.4f}`, `p = {_fmt_p4(b3_best['delta_r2_p_one_sided'])}`)** vs Stopwatch `{b3_sw['r2']:+.4f}` (V4 positional DL get-off Partial R² `+0.1584`, `q_FDR = 0.0060`). Top-quintile (`Q5`) optical prospects average **`{q5['mean_snaps_per_season']:.1f}` NFL snaps/season** (`{q5['starter_rate_500_snaps']*100:.1f}%` starter rate) vs **`{q1['mean_snaps_per_season']:.1f}` snaps/season** (`{q1['starter_rate_500_snaps']*100:.1f}%` starter rate) in `Q1`.\n"
+        f"On **DL/EDGE First-Step Get-Off (`n = {b3_best['n']}`)**, deep optical fusion reaches **`R² = {b3_best['r2']:+.4f}` (`ρ = {b3_best['spearman_rho']:+.4f}`, `p = {_fmt_p4(b3_best['delta_r2_p_one_sided'])}`)** vs Stopwatch `{b3_sw['r2']:+.4f}` (V4 positional DL get-off Partial R² `{ov['dl_get_off_partial_r2_vs_stopwatch']:+.4f}`, `q_FDR = {ov['dl_get_off_q_fdr']:.4f}`). Top-quintile (`Q5`) optical prospects average **`{q5['mean_snaps_per_season']:.1f}` NFL snaps/season** (`{q5['starter_rate_500_snaps']*100:.1f}%` starter rate) vs **`{q1['mean_snaps_per_season']:.1f}` snaps/season** (`{q1['starter_rate_500_snaps']*100:.1f}%` starter rate) in `Q1`.\n"
         f"4. **Film-Room Optical Proof & GM Cap Surplus on Real Named NFL Players:** In the Combine WR Gauntlet, 40-yard opt-out **Puka Nacua (Rd 5, #177, α = +2.79σ, realized 4-yr surplus `+$49.0M`)** reaches **`9.59 yd/s`** and **`9.48 yd/s²`** lateral cut force (V4 Peak 0.3s attention window **`7.7–8.0s`**) vs Round 2 WR **Ja'Lynn Polk (`8.84 yd/s`, α = -1.10σ, `-$2.9M` surplus)**, translating to **`9.68 yd/s`** on an 80-yard NFL reception (`+6.87 EPA`). Among cornerbacks, 7th-rounder **Jaylon Jones (4.57s 40, `+$23.6M` surplus)** breaks **`+0.98 yd/s` faster** with **2.1× harder braking** than Round 2 pick **Cam Smith (4.43s 40, `-$5.3M` surplus)**."
-        if v4_metrics
+        if has_v4
         else (
             f"1. **Deep Temporal Fusion Beats Traditional Stopwatches on Sunday Game Translation (`n = 497`):** Stratified **`R² = {b1_best_s['r2']:+.4f}` (`ρ = {b1_best_s['spearman_rho']:+.4f}`)** vs Stopwatch `{b1_s['stopwatch_anthro']['r2']:+.4f}`; Temporal LOYO **`R² = {b1_best_t['r2']:+.4f}`** vs `{b1_t['stopwatch_anthro']['r2']:+.4f}`.\n"
             f"2. **Pre-Draft Career Value & DL Get-Off:** NGS + Deep Optical reaches **`R² = {b2_s[b2_ngs_best_key]['r2']:+.4f}`**; DL First-Step Get-Off hits **`R² = {b3_best['r2']:+.4f}`**."
         )
     )
 
+    sec_arch_num = 6 if has_v4 else 5
+    sec_repro_num = 7 if has_v4 else 6
+    if has_v4:
+        wr_win = wr_e["peak_saliency_window_sec"]
+        arch_bullets = (
+            f"- **Defensive Line / Edge (`DL`, `n = {arch['DL']['n_players']}`):** Dedicated V4 positional encoder reaches **`R² = {dl_e['cv_r2']:+.4f}` (`Temporal LOYO {dl_e['temporal_loyo_r2']:+.4f}`, `Partial R² {dl_e['partial_r2_vs_stopwatch']:+.4f}`, `q_FDR = {dl_e['q_fdr_vs_stopwatch']:.4f}`)**; skill-drill mechanical power projects pass-rush get-off on 100% of rushers (`V2 R² = {b3_best['r2']:+.4f}`).\n"
+            f"- **Defensive Backs (`DB`, `n = {arch['DB']['n_players']}`):** Backpedal & 90-degree transition braking lifts DB translation by **`ΔR² = {db_e['delta_r2_vs_stopwatch']:+.4f}`** over stopwatches (`Partial R² = {db_e['partial_r2_vs_stopwatch']:+.4f}`, `q_FDR = {db_e['q_fdr_vs_stopwatch']:.4f}`), separating true coverage starters (**Jaylon Jones**, `+$23.6M` EV) from straight-line track traps (**Cam Smith**, `-$5.3M` EV).\n"
+            f"- **Wide Receivers (`WR`, `n = {arch['WR']['n_players']}`) & Tight Ends (`TE`, `n = {arch['TE']['n_players']}`):** Route-stem braking, angular cut velocity (`ω_95`), and 0.3s dual-head attention (`{wr_win[0]:.2f}–{wr_win[1]:.2f}s` cohort peak) uncover 40-yd opt-out gems like **Puka Nacua** (`+$49.0M` EV) and **Theo Johnson**.\n"
+            f"- **Offensive Line (`OL`, `n = {arch['OL']['n_players']}`):** Prioritize **Mass-Scaled Trench Impulse (`m * max_a`)** during pull and mirror drills (`top optical r = {arch['OL']['top_optical_driver']['r']:+.4f}`, `p = {arch['OL']['top_optical_driver']['p']:.2e}`), uncovering Day-3 anchors like **Mason McCormick** (`+$29.8M` EV)."
+        )
+    else:
+        arch_bullets = (
+            f"- **Defensive Line / Edge (`DL`, `n = {arch['DL']['n_players']}`):** Skill-drill mechanical power projects pass-rush get-off on 100% of rushers (`R² = {b3_best['r2']:+.4f}`).\n"
+            f"- **Defensive Backs (`DB`, `n = {arch['DB']['n_players']}`):** Backpedal & 90-degree transition braking separates true coverage starters from straight-line track traps.\n"
+            f"- **Wide Receivers (`WR`, `n = {arch['WR']['n_players']}`) & Tight Ends (`TE`, `n = {arch['TE']['n_players']}`):** Route-stem braking and angular cut velocity (`ω_95`) uncover 40-yd opt-out gems like **Puka Nacua**.\n"
+            f"- **Offensive Line (`OL`, `n = {arch['OL']['n_players']}`):** Prioritize **Mass-Scaled Trench Impulse (`m * max_a`)** during pull and mirror drills (`top optical r = {arch['OL']['top_optical_driver']['r']:+.4f}`, `p = {arch['OL']['top_optical_driver']['p']:.2e}`)."
+        )
+
     md = f"""# Beyond the Stopwatch ({title_edition}): Position-Specific 10 Hz Dual-Head Temporal Attention & GM Draft Surplus EV for NFL Big Data Bowl 2027
 
-**NFL Big Data Bowl 2027 Submission | Open Track | 100% Official Data, 328 Colab NVIDIA L4 GPU Models & Benjamini-Hochberg FDR Verified**
+**NFL Big Data Bowl 2027 Submission | Open Track | 100% Official Data{subtitle_gpu_tag}**
 
 ---
 
 ## Executive Summary
 
-Every spring in Indianapolis, NFL scouting departments face a growing blind spot: **17% of prospects (`{n_40_out}/{n_total}`) skip the 40-yard dash**, and **`{pct_agility_blind:.1f}%` skip both the 3-cone drill (`{n_3c_out}` opt-outs) and short shuttle (`{n_ss_out}` opt-outs)**. Yet **100% of all {n_total} prospects (2023 to 2025 classes)** participate in on-field position skill drills recorded at **exact 10 Hz optical fidelity** (`{ct_rows:,}` player frames in `combine_tracking.csv`).
+Every spring in Indianapolis, NFL scouting departments face a growing blind spot: **{pct_40_out}% of prospects (`{n_40_out}/{n_total}`) skip the 40-yard dash**, and **`{pct_agility_blind:.1f}%` skip both the 3-cone drill (`{n_3c_out}` opt-outs) and short shuttle (`{n_ss_out}` opt-outs)**. Yet **100% of all {n_total} prospects (2023 to 2025 classes)** participate in on-field position skill drills recorded at **exact 10 Hz optical fidelity** (`{ct_rows:,}` player frames in `combine_tracking.csv`).
 
-In our **{title_edition}** architecture, we fuse physics-grounded kinematics with **4 position-specific multi-scale 1D-CNN + Dual-Head Temporal Attention encoders** across all 431,094 Combine optical frames and link them directly to **{gt_rows:,} regular-season NFL game tracking frames**, **{pp_rows:,} play-level outcomes**, and **official NFL CBA 4-year rookie contract values**:
+In our **{title_edition}** architecture, we fuse physics-grounded kinematics with **4 position-specific multi-scale 1D-CNN + Dual-Head Temporal Attention encoders** across all {ct_rows:,} Combine optical frames and link them directly to **{gt_rows:,} regular-season NFL game tracking frames**, **{pp_rows:,} play-level outcomes**, and **official NFL CBA 4-year rookie contract values**:
 - **Branch A — Physics-Grounded Biomechanical Kinematics (Polars + GBDT/Ridge):** Signed tangential acceleration, neuromuscular jerk, circular angular velocity, Change-of-Direction Curvature Braking Index (CBI), and mass-scaled trench power (`m * v * a`).
 - **Branch B — Position-Specific Multi-Scale 1D-CNN + Dual-Head Temporal & MIL Attention (`positional_attn.py`, Colab NVIDIA L4 GPU):** Four dedicated position encoders (`WR_TE`, `DB`, `DL_EDGE`, `OL_LB`) with multi-scale kernels (`k = 3, 5, 9` = `0.3s / 0.5s / 0.9s`), FiLM drill conditioning, **Dual-Head Temporal Attention** (`Head 1: Burst Acceleration` vs `Head 2: Deceleration/Braking`), and masked Cross-Rep MIL pooling that natively scores 40-yard opt-outs. {gpu_banner}
 - **Branch C — NFL GM Draft-Room Surplus EV Engine (`draft_ev.py`):** Maps `(position_group, draft_pick, V4_optical_alpha)` to 4-year rookie contract surplus (`$M`), 95% confidence bands, counterfactual bust risk reduction (`%`), and closest real historical NFL comps from the 510-player cohort.
@@ -447,8 +518,7 @@ Every preprocessing scaler (within-drill channel statistics, Empirical-Bayes pos
 | :--- | :---: | :---: | :---: | :---: | :--- |
 | **Baseline B:** NGS Pre-Draft Scores | `{b1_s['ngs_scores']['r2']:+.4f}` [{b1_s['ngs_scores']['r2_ci95'][0]:+.4f}, {b1_s['ngs_scores']['r2_ci95'][1]:+.4f}] | `{b1_s['ngs_scores']['spearman_rho']:+.4f}` | `{b1_t['ngs_scores']['r2']:+.4f}` [{b1_t['ngs_scores']['r2_ci95'][0]:+.4f}, {b1_t['ngs_scores']['r2_ci95'][1]:+.4f}] | `{b1_t['ngs_scores']['spearman_rho']:+.4f}` | Baseline (NGS) |
 | **Baseline A:** Stopwatch + Anthropometrics | `{b1_s['stopwatch_anthro']['r2']:+.4f}` [{b1_s['stopwatch_anthro']['r2_ci95'][0]:+.4f}, {b1_s['stopwatch_anthro']['r2_ci95'][1]:+.4f}] | `{b1_s['stopwatch_anthro']['spearman_rho']:+.4f}` | `{b1_t['stopwatch_anthro']['r2']:+.4f}` [{b1_t['stopwatch_anthro']['r2_ci95'][0]:+.4f}, {b1_t['stopwatch_anthro']['r2_ci95'][1]:+.4f}] | `{b1_t['stopwatch_anthro']['spearman_rho']:+.4f}` | Reference (Stopwatch) |
-| **Baseline C:** Draft Capital + Stopwatch | `+0.1624` | — | — | — | Reference (Draft Capital + Stopwatch) |
-| **v1 Optical Only:** Physics Tabular (100% cov.) | `{b1_s['optical_only']['r2']:+.4f}` [{b1_s['optical_only']['r2_ci95'][0]:+.4f}, {b1_s['optical_only']['r2_ci95'][1]:+.4f}] | `{b1_s['optical_only']['spearman_rho']:+.4f}` | `{b1_t['optical_only']['r2']:+.4f}` [{b1_t['optical_only']['r2_ci95'][0]:+.4f}, {b1_t['optical_only']['r2_ci95'][1]:+.4f}] | `{b1_t['optical_only']['spearman_rho']:+.4f}` | vs Stopwatch: Strat ΔR² `{b1_s['optical_only']['delta_r2_vs_baseline']:+.4f}` (`p={_fmt_p4(b1_s['optical_only']['delta_r2_p_one_sided'])}`), Temp ΔR² `{b1_t['optical_only']['delta_r2_vs_baseline']:+.4f}` (`p={_fmt_p4(b1_t['optical_only']['delta_r2_p_one_sided'])}`) |
+{v4_baseline_c_row}| **v1 Optical Only:** Physics Tabular (100% cov.) | `{b1_s['optical_only']['r2']:+.4f}` [{b1_s['optical_only']['r2_ci95'][0]:+.4f}, {b1_s['optical_only']['r2_ci95'][1]:+.4f}] | `{b1_s['optical_only']['spearman_rho']:+.4f}` | `{b1_t['optical_only']['r2']:+.4f}` [{b1_t['optical_only']['r2_ci95'][0]:+.4f}, {b1_t['optical_only']['r2_ci95'][1]:+.4f}] | `{b1_t['optical_only']['spearman_rho']:+.4f}` | vs Stopwatch: Strat ΔR² `{b1_s['optical_only']['delta_r2_vs_baseline']:+.4f}` (`p={_fmt_p4(b1_s['optical_only']['delta_r2_p_one_sided'])}`), Temp ΔR² `{b1_t['optical_only']['delta_r2_vs_baseline']:+.4f}` (`p={_fmt_p4(b1_t['optical_only']['delta_r2_p_one_sided'])}`) |
 | **v1 Tabular Fusion:** Stopwatch + Optical GBDT/Ridge | `{b1_s['stopwatch_plus_optical']['r2']:+.4f}` [{b1_s['stopwatch_plus_optical']['r2_ci95'][0]:+.4f}, {b1_s['stopwatch_plus_optical']['r2_ci95'][1]:+.4f}] | `{b1_s['stopwatch_plus_optical']['spearman_rho']:+.4f}` | `{b1_t['stopwatch_plus_optical']['r2']:+.4f}` [{b1_t['stopwatch_plus_optical']['r2_ci95'][0]:+.4f}, {b1_t['stopwatch_plus_optical']['r2_ci95'][1]:+.4f}] | `{b1_t['stopwatch_plus_optical']['spearman_rho']:+.4f}` | vs Stopwatch: Strat ΔR² `{b1_s['stopwatch_plus_optical']['delta_r2_vs_baseline']:+.4f}` (`p={_fmt_p4(b1_s['stopwatch_plus_optical']['delta_r2_p_one_sided'])}`), Temp ΔR² `{b1_t['stopwatch_plus_optical']['delta_r2_vs_baseline']:+.4f}` (`p={_fmt_p4(b1_t['stopwatch_plus_optical']['delta_r2_p_one_sided'])}`) |
 {v2_cnn_rows_b1}{v4_row_b1}
 {v4_pos_section}
@@ -502,18 +572,15 @@ Every preprocessing scaler (within-drill channel statistics, Empirical-Bayes pos
 
 ---
 
-## 6. Position-Specific Biomechanical Archetypes & Front-Office Deployment
+## {sec_arch_num}. Position-Specific Biomechanical Archetypes & Front-Office Deployment
 
 ![Figure 5: Position-Specific Biomechanical Archetype Signatures](figures/fig5_positional_biomechanical_archetypes.png)
 
-- **Defensive Line / Edge (`DL`, `n = {arch['DL']['n_players']}`):** Dedicated V4 positional encoder reaches **`R² = +0.6892` (`Temporal LOYO +0.7045`, `Partial R² +0.3566`, `q_FDR = 0.0012`)**; skill-drill mechanical power projects pass-rush get-off on 100% of rushers (`V2 R² = {b3_best['r2']:+.4f}`).
-- **Defensive Backs (`DB`, `n = {arch['DB']['n_players']}`):** Backpedal & 90-degree transition braking lifts DB translation by **`ΔR² = +0.1352`** over stopwatches (`Partial R² = +0.1236`, `q_FDR = 0.0075`), separating true coverage starters (**Jaylon Jones**, `+$23.6M` EV) from straight-line track traps (**Cam Smith**, `-$5.3M` EV).
-- **Wide Receivers (`WR`, `n = {arch['WR']['n_players']}`) & Tight Ends (`TE`, `n = {arch['TE']['n_players']}`):** Route-stem braking, angular cut velocity (`ω_95`), and 0.3s dual-head attention (`2.76–3.06s` cohort peak) uncover 40-yd opt-out gems like **Puka Nacua** (`+$49.0M` EV) and **Theo Johnson**.
-- **Offensive Line (`OL`, `n = {arch['OL']['n_players']}`):** Prioritize **Mass-Scaled Trench Impulse (`m * max_a`)** during pull and mirror drills (`top optical r = {arch['OL']['top_optical_driver']['r']:+.4f}`, `p = {arch['OL']['top_optical_driver']['p']:.2e}`), uncovering Day-3 anchors like **Mason McCormick** (`+$29.8M` EV).
+{arch_bullets}
 
 ---
 
-## 7. Reproducibility, Interactive Film-Room Studio & 1080p Scouting Reel
+## {sec_repro_num}. Reproducibility, Interactive Film-Room Studio & 1080p Scouting Reel
 
 - **Interactive Optical Film-Room & GM Surplus Studio:** `materials/NFL_BDB2027_Interactive_FilmRoom.html` (Economist/NYT pure-white Light UI, `sloplint --render` 0 FAIL / 0 WARN across 8 viewports, Playwright E2E verified) pairs synchronized 10 Hz ghost trajectories + 0.1s dual-head attention glow across all 4 position groups with a live 510-player GM Draft-Room Surplus EV Calculator.
 - **V6 1080p Scouting Film-Room Reel:** `materials/NFL_BDB2027_FilmRoom_Reel_1080p.mp4` + synced English captions `materials/NFL_BDB2027_FilmRoom_Reel_1080p.srt` (studio ZONOS3-Mini `Wyatt` narration + documentary pulse soundbed normalized to `-14 LUFS`), featuring live 1920×1080 Playwright recordings of the 10 Hz dual-head saliency studio, live GM Draft EV slider simulation, and all 6 pure-white 2× Retina figures (`fig1`–`fig6`).
