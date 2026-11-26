@@ -1,0 +1,68 @@
+{
+  "version": "v4-positional-attn-gpu",
+  "colab_account": "ultra-4",
+  "gpu_name": "NVIDIA L4",
+  "vram_gb": 22.03,
+  "pytorch_version": "2.14.1+cu130",
+  "architecture": "4 Position-Specific Multi-Scale 1D-CNN (k=3,5,9) + SE-ResBlock + FiLM + Explicit Dual-Head Temporal Attention + MIL",
+  "position_groups": [
+    "WR_TE",
+    "DB",
+    "DL_EDGE",
+    "OL_LB"
+  ],
+  "conv_kernels": [
+    3,
+    5,
+    9
+  ],
+  "n_attn_heads": 2,
+  "enriched_channels": 14,
+  "trainable_parameters_per_encoder": 44432,
+  "total_specialist_parameters": 177728,
+  "total_gpu_models_trained": 328,
+  "total_gpu_train_sec": 827.33,
+  "total_combine_player_frames": 431094,
+  "packed_reps": 6280,
+  "standalone_gpu_runs": {
+    "v4_b1_strat": {
+      "n": 497,
+      "r2": 0.1636,
+      "spearman_rho": 0.4485,
+      "per_group_r2": {
+        "WR_TE": 0.0385,
+        "DB": -0.0948,
+        "DL_EDGE": 0.6495,
+        "OL_LB": -0.0704
+      },
+      "elapsed_sec": 464.65,
+      "models_trained": 180,
+      "trainable_parameters_per_encoder": 44432
+    },
+    "v4_b1_temp": {
+      "n": 497,
+      "r2": 0.1675,
+      "spearman_rho": 0.4526,
+      "per_group_r2": {
+        "WR_TE": -0.0182,
+        "DB": -0.0894,
+        "DL_EDGE": 0.7261,
+        "OL_LB": -0.0856
+      },
+      "elapsed_sec": 209.39,
+      "models_trained": 108,
+      "trainable_parameters_per_encoder": 44432
+    },
+    "v4_b3_dl_strat": {
+      "n": 115,
+      "r2": 0.5149,
+      "spearman_rho": 0.7198,
+      "per_group_r2": {
+        "DL_EDGE": 0.5149
+      },
+      "elapsed_sec": 152.92,
+      "models_trained": 40,
+      "trainable_parameters_per_encoder": 44395
+    }
+  }
+}
