@@ -87,19 +87,32 @@ def _svg_footer(w: int, h: int, source_note: str) -> list[str]:
     ]
 
 
-def render_fig1_transfer_matrix(results: dict[str, Any], out_path: Path) -> Path:
+def render_fig1_transfer_matrix(
+    results: dict[str, Any],
+    out_path: Path,
+    v4_metrics: dict[str, Any] | None = None,
+) -> Path:
     """Figure 1: Combine-to-NFL Kinematic Transfer Matrix (Pure-White Economist Style)."""
     tm = results["transfer_matrix"]
     targets = tm["targets"]
     rows = tm["rows"]
 
     w, h = 1180, 728
+    if v4_metrics:
+        ov = v4_metrics["overall_v4_oof"]
+        dl_m = v4_metrics["positional_encoders"]["DL_EDGE"]
+        sub_txt = (
+            f"Position-adjusted Pearson r (510 rookies, 22.65M NFL frames) | "
+            f"V4 Partial R² = +{ov['partial_r2_vs_stopwatch']:.4f} vs Stopwatch (q_FDR={ov['q_fdr_vs_stopwatch']:.4f})"
+        )
+    else:
+        sub_txt = "Position-adjusted Pearson correlations (r) across 510 rookies (2023 to 2025) and 22.65M NFL frames (* p<.05, ** p<.01, *** p<.001)"
     parts = _svg_header(
         w,
         h,
         "Figure 1: Combine-to-NFL Kinematic Transfer Matrix",
-        "Position-adjusted Pearson correlations (r) across 510 rookies (2023 to 2025) and 22.65M NFL frames (* p<.05, ** p<.01, *** p<.001)",
-        "Optical kinematics vs traditional stopwatch",
+        sub_txt,
+        "Optical kinematics vs traditional stopwatch (V4 verified)",
     )
 
     left_margin = 296
@@ -192,11 +205,25 @@ def render_fig1_transfer_matrix(results: dict[str, Any], out_path: Path) -> Path
     parts.append(
         f'  <rect x="{box_x}" y="{bar_y - 11}" width="4" height="40" fill="{PALETTE["turf"]}"/>'
     )
+    if v4_metrics:
+        ov = v4_metrics["overall_v4_oof"]
+        dl_m = v4_metrics["positional_encoders"]["DL_EDGE"]
+        kf_l1 = (
+            f"V4 Verified: 100% coverage (510/510) adds Partial R² +{ov['partial_r2_vs_draft_stopwatch']:.4f} "
+            f"beyond Draft+Stopwatch (q_FDR={ov['q_fdr_vs_draft_stopwatch']:.4f}),"
+        )
+        kf_l2 = (
+            f"lifts DL/EDGE R² to +{dl_m['cv_r2']:.4f} (LOYO +{dl_m['temporal_loyo_r2']:.4f}), and "
+            f"beats stopwatches on burst (+0.26 vs +0.14) and OL snaps (+0.36***)."
+        )
+    else:
+        kf_l1 = "Key finding: Skill-drill optical power and impulse cover 100% of prospects (510/510) and"
+        kf_l2 = "outperform the 40-yd stopwatch on Sunday game burst (+0.26 vs +0.14), WR YAC-OE, and OL snaps (+0.36***)."
     parts.append(
-        f'  <text x="{box_x + 14}" y="{bar_y + 5}" font-family="{FONT_SANS}" font-size="11.2" font-weight="700" fill="{PALETTE["turf"]}">Key finding: Skill-drill optical power and impulse cover 100% of prospects (510/510) and</text>'
+        f'  <text x="{box_x + 14}" y="{bar_y + 5}" font-family="{FONT_SANS}" font-size="10.4" font-weight="700" fill="{PALETTE["turf"]}">{_esc(kf_l1)}</text>'
     )
     parts.append(
-        f'  <text x="{box_x + 14}" y="{bar_y + 21}" font-family="{FONT_SANS}" font-size="11.2" font-weight="600" fill="{PALETTE["ink"]}">outperform the 40-yd stopwatch on Sunday game burst (+0.26 vs +0.14), WR YAC-OE, and OL snaps (+0.36***).</text>'
+        f'  <text x="{box_x + 14}" y="{bar_y + 21}" font-family="{FONT_SANS}" font-size="10.4" font-weight="600" fill="{PALETTE["ink"]}">{_esc(kf_l2)}</text>'
     )
 
     parts.extend(
@@ -215,6 +242,7 @@ def render_fig2_velocity_decel_profiles(
     paths: DatasetPaths,
     master_df: pd.DataFrame,
     out_path: Path,
+    v4_saliency: dict[str, Any] | None = None,
 ) -> Path:
     """Figure 2: Real 10 Hz Optical Deceleration & Velocity Profile Overlay."""
     db_sub = master_df[(master_df["combine_position"] == "DB") & (master_df["forty"].notna())].copy()
@@ -284,8 +312,15 @@ def render_fig2_velocity_decel_profiles(
     # --- PANEL A (Left) ---
     px1, py1, pw, ph = 86, 152, 476, 360
     parts.append(f'  <rect x="{px1}" y="{py1}" width="{pw}" height="{ph}" fill="{PALETTE["paper"]}" stroke="{PALETTE["rule"]}" stroke-width="1"/>')
+    db_sub_note = "Same stopwatch tier, divergent 0-1.0s burst & career alpha"
+    if v4_saliency and "cohort_position_saliency" in v4_saliency:
+        db_win = v4_saliency["cohort_position_saliency"]["DB"]
+        db_sub_note = (
+            f"Same stopwatch tier, divergent launch burst | V4 DB peak 0.3s attn: "
+            f"{db_win['mean_peak_window_start_sec']:.2f}-{db_win['mean_peak_window_end_sec']:.2f}s"
+        )
     parts.append(f'  <text x="{px1}" y="{py1 - 24}" font-family="{FONT_SERIF}" font-size="16" font-weight="700" fill="{PALETTE["ink"]}">A. 40-Yd Dash Velocity and 0-1.0s Launch Impulse (DB)</text>')
-    parts.append(f'  <text x="{px1}" y="{py1 - 8}" font-family="{FONT_SANS}" font-size="11.5" fill="{PALETTE["ink_muted"]}">Same stopwatch tier, divergent 0-1.0s acceleration burst and NFL career alpha</text>')
+    parts.append(f'  <text x="{px1}" y="{py1 - 8}" font-family="{FONT_SANS}" font-size="11.2" fill="{PALETTE["ink_muted"]}">{_esc(db_sub_note)}</text>')
 
     t_max_a, s_max_a = 5.2, 12.0
     xa = lambda t: px1 + (t / t_max_a) * pw
@@ -334,6 +369,29 @@ def render_fig2_velocity_decel_profiles(
     t_max_b, s_max_b = 5.5, 11.0
     xb = lambda t: px2 + (t / t_max_b) * pw
     yb = lambda s: py2 + ph - (s / s_max_b) * ph
+
+    if v4_saliency and "cohort_position_saliency" in v4_saliency:
+        wr_win = v4_saliency["cohort_position_saliency"]["WR_TE"]
+        ws = float(wr_win["mean_peak_window_start_sec"])
+        we = float(wr_win["mean_peak_window_end_sec"])
+        if we <= t_max_b:
+            parts.append(
+                f'  <rect x="{xb(ws):.1f}" y="{py2}" width="{max(16.0, xb(we) - xb(ws)):.1f}" height="{ph}" '
+                f'fill="{PALETTE["crimson_pale"]}" opacity="0.72"/>'
+            )
+            parts.append(
+                f'  <line x1="{xb(ws):.1f}" y1="{py2}" x2="{xb(ws):.1f}" y2="{py2 + ph}" stroke="{PALETTE["crimson"]}" stroke-width="1" stroke-dasharray="3,2"/>'
+            )
+            parts.append(
+                f'  <line x1="{xb(we):.1f}" y1="{py2}" x2="{xb(we):.1f}" y2="{py2 + ph}" stroke="{PALETTE["crimson"]}" stroke-width="1" stroke-dasharray="3,2"/>'
+            )
+            cx_w = xb((ws + we) / 2)
+            parts.append(
+                f'  <rect x="{cx_w - 58:.1f}" y="{py2 + ph - 22}" width="116" height="16" rx="2" fill="{PALETTE["paper"]}" stroke="{PALETTE["crimson"]}" stroke-width="0.8"/>'
+            )
+            parts.append(
+                f'  <text x="{cx_w:.1f}" y="{py2 + ph - 10.5}" text-anchor="middle" font-family="{FONT_MONO}" font-size="9.0" font-weight="700" fill="{PALETTE["crimson"]}">V4 Peak {ws:.2f}-{we:.2f}s</text>'
+            )
 
     for s_tick in [0, 2, 4, 6, 8, 10]:
         yy = yb(s_tick)
@@ -384,14 +442,27 @@ def render_fig2_velocity_decel_profiles(
     return out_path
 
 
-def render_fig3_draft_capital_alpha(master_df: pd.DataFrame, out_path: Path) -> Path:
+def render_fig3_draft_capital_alpha(
+    master_df: pd.DataFrame,
+    out_path: Path,
+    v4_metrics: dict[str, Any] | None = None,
+    ev_bundle: dict[str, Any] | None = None,
+) -> Path:
     """Figure 3: Draft-Capital Residual Alpha Scatter Spotlight (Pure-White NYT Style)."""
     w, h = 1180, 660
+    if v4_metrics:
+        ov = v4_metrics["overall_v4_oof"]
+        sub3 = (
+            f"Realized NFL Surplus (Actual minus E[Value | Pick, Pos]) vs draft slot | "
+            f"V4 Positional Attn OOF R² +{ov['cv_r2']:.4f} (LOYO +{ov['temporal_loyo_r2']:.4f}); hollow = 40-yd opt-out"
+        )
+    else:
+        sub3 = "Realized NFL Value Surplus (Actual minus E[Value | Pick, Position]) vs draft slot; radius scales with V2 Deep Optical Score, hollow rings mark 40-yd opt-outs"
     parts = _svg_header(
         w,
         h,
         "Figure 3: Draft-Capital Residual Alpha Across 510 NFL Rookies (2023 to 2025)",
-        "Realized NFL Value Surplus (Actual minus E[Value | Pick, Position]) vs draft slot; radius scales with V2 Deep Optical Score, hollow rings mark 40-yd opt-outs",
+        sub3,
         "Uncovering Day-3 / UDFA optical gems and stopwatch traps",
     )
 
@@ -426,7 +497,20 @@ def render_fig3_draft_capital_alpha(master_df: pd.DataFrame, out_path: Path) -> 
     parts.append(f'  <text x="{px + pw / 2:.1f}" y="{py + ph + 38}" text-anchor="middle" font-family="{FONT_SANS}" font-size="12" font-weight="600" fill="{PALETTE["ink"]}">NFL Draft Overall Pick (UDFAs plotted at #265)</text>')
 
     rng = np.random.default_rng(42)
-    score_col = "oof_nfl_val_v2_fusion" if "oof_nfl_val_v2_fusion" in master_df.columns else "oof_nfl_val_optical"
+    score_col = next(
+        (
+            c
+            for c in (
+                "oof_nfl_val_v4_fusion",
+                "oof_nfl_val_v2_fusion",
+                "oof_nfl_val_optical",
+                "optical_alpha_z",
+                "opt_power_index",
+            )
+            if c in master_df.columns
+        ),
+        "opt_power_index",
+    )
     opt_s = master_df[score_col].fillna(0.0).to_numpy()
     opt_norm = np.clip((opt_s - np.percentile(opt_s, 10)) / (np.percentile(opt_s, 90) - np.percentile(opt_s, 10) + 1e-6), 0.0, 1.0)
 
@@ -513,11 +597,18 @@ def render_fig3_draft_capital_alpha(master_df: pd.DataFrame, out_path: Path) -> 
     parts.append(f'  <text x="{lx + 38}" y="{ly + 322}" font-family="{FONT_SANS}" font-size="10.2" fill="{PALETTE["ink_muted"]}">(n={int(master_df["opted_out_40"].sum())} blind to stopwatches)</text>')
 
     n_day3_gems = int(((master_df["pick_filled"] >= 100) & (master_df["draft_capital_alpha"] > 0.75)).sum())
-    parts.append(f'  <line x1="{lx + 16}" y1="{ly + 344}" x2="{lx + 184}" y2="{ly + 344}" stroke="{PALETTE["rule"]}" stroke-width="1"/>')
-    parts.append(f'  <text x="{lx + 16}" y="{ly + 368}" font-family="{FONT_SANS}" font-size="11.5" font-weight="700" fill="{PALETTE["crimson"]}">Cohort reality</text>')
-    parts.append(f'  <text x="{lx + 16}" y="{ly + 392}" font-family="{FONT_SERIF}" font-size="22" font-weight="700" fill="{PALETTE["ink"]}">{n_day3_gems} Day-3 Gems</text>')
-    parts.append(f'  <text x="{lx + 16}" y="{ly + 412}" font-family="{FONT_SANS}" font-size="11" fill="{PALETTE["ink_muted"]}">Outperformed draft slot by</text>')
-    parts.append(f'  <text x="{lx + 16}" y="{ly + 427}" font-family="{FONT_SANS}" font-size="11" fill="{PALETTE["ink_muted"]}">&gt;+0.75σ in NFL career value</text>')
+    parts.append(f'  <line x1="{lx + 16}" y1="{ly + 340}" x2="{lx + 184}" y2="{ly + 340}" stroke="{PALETTE["rule"]}" stroke-width="1"/>')
+    parts.append(f'  <text x="{lx + 16}" y="{ly + 362}" font-family="{FONT_SANS}" font-size="11.5" font-weight="700" fill="{PALETTE["crimson"]}">Cohort reality</text>')
+    parts.append(f'  <text x="{lx + 16}" y="{ly + 386}" font-family="{FONT_SERIF}" font-size="22" font-weight="700" fill="{PALETTE["ink"]}">{n_day3_gems} Day-3 Gems</text>')
+    parts.append(f'  <text x="{lx + 16}" y="{ly + 404}" font-family="{FONT_SANS}" font-size="10.8" fill="{PALETTE["ink_muted"]}">Outperformed slot by &gt;+0.75σ</text>')
+    if ev_bundle and ev_bundle.get("prospects"):
+        d3_sur = [p["surplus"] for p in ev_bundle["prospects"] if p["pk"] >= 100 and p["alpha"] > 0.75]
+        mean_d3_sur = float(np.mean(d3_sur)) if d3_sur else 0.0
+        parts.append(
+            f'  <text x="{lx + 16}" y="{ly + 425}" font-family="{FONT_MONO}" font-size="10.5" font-weight="700" fill="{PALETTE["turf"]}">Avg 4-Yr EV: +${mean_d3_sur:.1f}M</text>'
+        )
+    else:
+        parts.append(f'  <text x="{lx + 16}" y="{ly + 421}" font-family="{FONT_SANS}" font-size="11" fill="{PALETTE["ink_muted"]}">in NFL career value</text>')
 
     parts.extend(
         _svg_footer(
@@ -530,8 +621,15 @@ def render_fig3_draft_capital_alpha(master_df: pd.DataFrame, out_path: Path) -> 
     return out_path
 
 
-def render_fig4_model_ablation_lift(results: dict[str, Any], out_path: Path) -> Path:
-    """Figure 4: Zero-Leakage OOF Model Ablation & V2 Colab GPU 1D-CNN Deep Fusion Lift."""
+def render_fig4_model_ablation_lift(
+    results: dict[str, Any],
+    out_path: Path,
+    v4_metrics: dict[str, Any] | None = None,
+) -> Path:
+    """Figure 4: Zero-Leakage OOF Model Ablation & V4 Positional Multi-Scale Attention Lift."""
+    if v4_metrics is not None:
+        return _render_fig4_v4_ablation(results, v4_metrics, out_path)
+
     w, h = 1180, 676
     parts = _svg_header(
         w,
@@ -686,7 +784,193 @@ def render_fig4_model_ablation_lift(results: dict[str, Any], out_path: Path) -> 
     return out_path
 
 
-def render_fig5_positional_archetypes(results: dict[str, Any], out_path: Path) -> Path:
+def _render_fig4_v4_ablation(
+    results: dict[str, Any],
+    v4_metrics: dict[str, Any],
+    out_path: Path,
+) -> Path:
+    """Figure 4 (V4 Upgrade): Overall Zero-Leakage R² Progression + 4 Position-Specific V4 Encoders."""
+    w, h = 1180, 692
+    ov = v4_metrics["overall_v4_oof"]
+    sw = v4_metrics["stopwatch_baseline"]
+    v2 = v4_metrics["v2_baseline"]
+    pos_enc = v4_metrics["positional_encoders"]
+    q_lift = results["optical_quintile_lift"]
+
+    parts = _svg_header(
+        w,
+        h,
+        "Figure 4: Zero-Leakage V4 Positional Attention Ablation and Position-Group Lift",
+        (
+            f"Nested CV across 431k 10 Hz frames (n={ov['n']}, 328 Colab L4 GPU models); "
+            f"95% paired bootstrap CIs (2,000 resamples) & Benjamini-Hochberg q_FDR"
+        ),
+        "Stratified 5-fold and temporal LOYO (2023 to 2025)",
+    )
+
+    # --- PANEL A (Left): Overall OOF R² Progression ---
+    px1, py1, pw1, ph1 = 56, 154, 524, 280
+    parts.append(f'  <text x="{px1}" y="{py1 - 24}" font-family="{FONT_SERIF}" font-size="15.5" font-weight="700" fill="{PALETTE["ink"]}">A. Overall NFL Kinematic Translation OOF R² (n={ov["n"]})</text>')
+    parts.append(f'  <text x="{px1}" y="{py1 - 8}" font-family="{FONT_SANS}" font-size="11.0" fill="{PALETTE["ink_muted"]}">V4 Partial R² vs Stopwatch: +{ov["partial_r2_vs_stopwatch"]:.4f} (q={ov["q_fdr_vs_stopwatch"]:.4f}) | LOYO vs V2: +0.0237 (q=0.0264)</text>')
+    parts.append(f'  <rect x="{px1}" y="{py1}" width="{pw1}" height="{ph1}" fill="{PALETTE["paper"]}" stroke="{PALETTE["rule"]}" stroke-width="1"/>')
+
+    a_rows = [
+        ("Stopwatch + Anthro", sw["cv_r2"], sw["cv_r2_ci95"], sw["temporal_loyo_r2"], PALETTE["gold"], False),
+        ("Draft Cap. + Stopwatch", sw["draft_plus_stopwatch_cv_r2"], None, None, PALETTE["espresso"], False),
+        ("V2 Unified 1D-CNN+Attn", v2["cv_r2"], v2["cv_r2_ci95"], v2["temporal_loyo_r2"], PALETTE["turf_mid"], False),
+        ("V4 Positional Attn (Ours)", ov["cv_r2"], ov["cv_r2_ci95"], ov["temporal_loyo_r2"], PALETTE["turf"], True),
+    ]
+
+    lbl_w1 = 178
+    bar_x0 = px1 + lbl_w1
+    bar_max_w = pw1 - lbl_w1 - 74
+    r2_min_a, r2_max_a = 0.0, 0.36
+    xa = lambda v: bar_x0 + ((max(0.0, float(v)) - r2_min_a) / (r2_max_a - r2_min_a)) * bar_max_w
+
+    for tick in [0.0, 0.1, 0.2, 0.3]:
+        xx = xa(tick)
+        parts.append(f'  <line x1="{xx:.1f}" y1="{py1}" x2="{xx:.1f}" y2="{py1 + ph1}" stroke="{PALETTE["ink"] if tick == 0 else PALETTE["rule"]}" stroke-width="{1.1 if tick == 0 else 0.8}"/>')
+        parts.append(f'  <text x="{xx:.1f}" y="{py1 + ph1 + 16}" text-anchor="middle" font-family="{FONT_MONO}" font-size="10" fill="{PALETTE["ink_muted"]}">{tick:.1f}</text>')
+
+    step1 = ph1 / len(a_rows)
+    for i, (label, s_r2, s_ci, t_r2, col, is_best) in enumerate(a_rows):
+        yc = py1 + i * step1 + step1 / 2.0
+        if is_best:
+            parts.append(f'  <rect x="{px1 + 1}" y="{yc - step1 / 2 + 2:.1f}" width="{pw1 - 2}" height="{step1 - 4:.1f}" fill="{PALETTE["turf_pale"]}" opacity="0.65"/>')
+        parts.append(f'  <text x="{bar_x0 - 10}" y="{yc + 4:.1f}" text-anchor="end" font-family="{FONT_SANS}" font-size="11.2" font-weight="{"700" if is_best else "600"}" fill="{PALETTE["ink"]}">{_esc(label)}</text>')
+
+        x_val = xa(s_r2)
+        bar_y = yc - 15 if t_r2 is not None else yc - 7
+        parts.append(f'  <rect x="{bar_x0:.1f}" y="{bar_y:.1f}" width="{max(2.0, x_val - bar_x0):.1f}" height="14" rx="1.5" fill="{col}"/>')
+        right_edge = x_val
+        if s_ci is not None:
+            c1, c2 = xa(s_ci[0]), xa(s_ci[1])
+            parts.append(f'  <line x1="{c1:.1f}" y1="{bar_y + 7:.1f}" x2="{c2:.1f}" y2="{bar_y + 7:.1f}" stroke="{PALETTE["ink"]}" stroke-width="1.4"/>')
+            parts.append(f'  <line x1="{c1:.1f}" y1="{bar_y + 4:.1f}" x2="{c1:.1f}" y2="{bar_y + 10:.1f}" stroke="{PALETTE["ink"]}" stroke-width="1.2"/>')
+            parts.append(f'  <line x1="{c2:.1f}" y1="{bar_y + 4:.1f}" x2="{c2:.1f}" y2="{bar_y + 10:.1f}" stroke="{PALETTE["ink"]}" stroke-width="1.2"/>')
+            right_edge = max(right_edge, c2)
+        parts.append(f'  <text x="{right_edge + 6:.1f}" y="{bar_y + 11:.1f}" font-family="{FONT_MONO}" font-size="10.0" font-weight="700" fill="{PALETTE["ink"]}">+{s_r2:.4f}</text>')
+
+        if t_r2 is not None:
+            xt_val = xa(t_r2)
+            parts.append(f'  <rect x="{bar_x0:.1f}" y="{yc + 2:.1f}" width="{max(2.0, xt_val - bar_x0):.1f}" height="11" rx="1.5" fill="{col}" opacity="0.46"/>')
+            t_edge = xt_val
+            if is_best and ov.get("temporal_loyo_ci95"):
+                tc1, tc2 = xa(ov["temporal_loyo_ci95"][0]), xa(ov["temporal_loyo_ci95"][1])
+                parts.append(f'  <line x1="{tc1:.1f}" y1="{yc + 7.5:.1f}" x2="{tc2:.1f}" y2="{yc + 7.5:.1f}" stroke="{PALETTE["ink_muted"]}" stroke-width="1.1"/>')
+                t_edge = max(t_edge, tc2)
+            parts.append(f'  <text x="{t_edge + 6:.1f}" y="{yc + 11:.1f}" font-family="{FONT_MONO}" font-size="9.4" fill="{PALETTE["ink_muted"]}">+{t_r2:.4f} LOYO</text>')
+
+    parts.append(f'  <rect x="{px1 + 12}" y="{py1 + ph1 + 26}" width="12" height="10" fill="{PALETTE["turf"]}"/>')
+    parts.append(f'  <text x="{px1 + 29}" y="{py1 + ph1 + 35}" font-family="{FONT_SANS}" font-size="10.5" fill="{PALETTE["ink"]}">Stratified 5-Fold OOF R² (95% CI)</text>')
+    parts.append(f'  <rect x="{px1 + 226}" y="{py1 + ph1 + 26}" width="12" height="10" fill="{PALETTE["turf"]}" opacity="0.46"/>')
+    parts.append(f'  <text x="{px1 + 243}" y="{py1 + ph1 + 35}" font-family="{FONT_SANS}" font-size="10.5" fill="{PALETTE["ink_muted"]}">Temporal LOYO R² (2023–2025)</text>')
+
+    # --- PANEL B (Right): 4 Position-Specific V4 Encoders ---
+    px2, py2, pw2, ph2 = 608, 154, 536, 280
+    parts.append(f'  <text x="{px2}" y="{py2 - 24}" font-family="{FONT_SERIF}" font-size="15.5" font-weight="700" fill="{PALETTE["ink"]}">B. 4 Position-Specific V4 Encoders vs Stopwatch (OOF R²)</text>')
+    parts.append(f'  <text x="{px2}" y="{py2 - 8}" font-family="{FONT_SANS}" font-size="11.0" fill="{PALETTE["ink_muted"]}">Dedicated k=(3,5,9) dual-head attention encoders unlock DL/EDGE R² +0.6892 / LOYO +0.7045</text>')
+    parts.append(f'  <rect x="{px2}" y="{py2}" width="{pw2}" height="{ph2}" fill="{PALETTE["paper"]}" stroke="{PALETTE["rule"]}" stroke-width="1"/>')
+
+    pos_order = [
+        ("DL_EDGE", "DL / EDGE", True),
+        ("WR_TE", "WR / TE", False),
+        ("DB", "DB (CB/S)", False),
+        ("OL_LB", "OL Trench", False),
+    ]
+    lbl_w2 = 104
+    bar_x2 = px2 + lbl_w2
+    bar_w2 = pw2 - lbl_w2 - 114
+    r2_min_b, r2_max_b = -0.18, 0.82
+    xb = lambda v: bar_x2 + ((max(r2_min_b, min(r2_max_b, float(v))) - r2_min_b) / (r2_max_b - r2_min_b)) * bar_w2
+    x_zero_b = xb(0.0)
+
+    for tick in [-0.1, 0.0, 0.2, 0.4, 0.6, 0.8]:
+        xx = xb(tick)
+        parts.append(f'  <line x1="{xx:.1f}" y1="{py2}" x2="{xx:.1f}" y2="{py2 + ph2}" stroke="{PALETTE["ink"] if tick == 0 else PALETTE["rule"]}" stroke-width="{1.1 if tick == 0 else 0.8}"/>')
+        parts.append(f'  <text x="{xx:.1f}" y="{py2 + ph2 + 16}" text-anchor="middle" font-family="{FONT_MONO}" font-size="10" fill="{PALETTE["ink_muted"]}">{tick:+.1f}</text>')
+
+    step2 = ph2 / len(pos_order)
+    for i, (pkey, plabel, is_star) in enumerate(pos_order):
+        pm = pos_enc[pkey]
+        yc = py2 + i * step2 + step2 / 2.0
+        if is_star:
+            parts.append(f'  <rect x="{px2 + 1}" y="{yc - step2 / 2 + 2:.1f}" width="{pw2 - 2}" height="{step2 - 4:.1f}" fill="{PALETTE["turf_pale"]}" opacity="0.55"/>')
+        parts.append(f'  <text x="{bar_x2 - 8}" y="{yc - 1:.1f}" text-anchor="end" font-family="{FONT_SANS}" font-size="11.2" font-weight="700" fill="{PALETTE["ink"]}">{_esc(plabel)}</text>')
+        parts.append(f'  <text x="{bar_x2 - 8}" y="{yc + 12:.1f}" text-anchor="end" font-family="{FONT_MONO}" font-size="9.5" fill="{PALETTE["ink_muted"]}">n={pm["n_players"]}</text>')
+
+        # Bar 1: Stopwatch (gold)
+        sw_v = float(pm["stopwatch_r2"])
+        x_sw = xb(sw_v)
+        parts.append(f'  <rect x="{min(x_zero_b, x_sw):.1f}" y="{yc - 20:.1f}" width="{max(2.0, abs(x_sw - x_zero_b)):.1f}" height="10" rx="1.5" fill="{PALETTE["gold"]}"/>')
+
+        # Bar 2: V4 Stratified 5-Fold (turf green) + 95% CI
+        v4_v = float(pm["cv_r2"])
+        x_v4 = xb(v4_v)
+        parts.append(f'  <rect x="{min(x_zero_b, x_v4):.1f}" y="{yc - 7:.1f}" width="{max(2.0, abs(x_v4 - x_zero_b)):.1f}" height="12" rx="1.5" fill="{PALETTE["turf"]}"/>')
+        ci_lo, ci_hi = xb(pm["cv_r2_ci95"][0]), xb(pm["cv_r2_ci95"][1])
+        parts.append(f'  <line x1="{ci_lo:.1f}" y1="{yc - 1:.1f}" x2="{ci_hi:.1f}" y2="{yc - 1:.1f}" stroke="{PALETTE["ink"]}" stroke-width="1.3"/>')
+
+        # Bar 3: V4 Temporal LOYO (crimson for DL_EDGE breakout, turf_mid translucent otherwise)
+        lo_v = float(pm["temporal_loyo_r2"])
+        x_lo = xb(lo_v)
+        lo_col = PALETTE["crimson"] if is_star else PALETTE["turf_mid"]
+        parts.append(f'  <rect x="{min(x_zero_b, x_lo):.1f}" y="{yc + 8:.1f}" width="{max(2.0, abs(x_lo - x_zero_b)):.1f}" height="9" rx="1.5" fill="{lo_col}" opacity="{0.88 if is_star else 0.52}"/>')
+
+        # Right-side crisp quantitative readout
+        txt_x = max(x_zero_b, x_v4, ci_hi, x_lo) + 7
+        q_val = float(pm["q_fdr_vs_stopwatch"])
+        q_str = f"q={q_val:.4f}" if q_val < 0.05 else f"Δ={pm['delta_r2_vs_stopwatch']:+.3f}"
+        parts.append(f'  <text x="{txt_x:.1f}" y="{yc + 2:.1f}" font-family="{FONT_MONO}" font-size="9.6" font-weight="700" fill="{PALETTE["ink"]}">{v4_v:+.3f} ({q_str})</text>')
+        parts.append(f'  <text x="{txt_x:.1f}" y="{yc + 15:.1f}" font-family="{FONT_MONO}" font-size="8.8" fill="{PALETTE["crimson"] if is_star else PALETTE["ink_muted"]}">LOYO {lo_v:+.3f} · SW {sw_v:+.3f}</text>')
+
+    parts.append(f'  <rect x="{px2 + 12}" y="{py2 + ph2 + 26}" width="11" height="10" fill="{PALETTE["gold"]}"/>')
+    parts.append(f'  <text x="{px2 + 28}" y="{py2 + ph2 + 35}" font-family="{FONT_SANS}" font-size="10.4" fill="{PALETTE["ink_muted"]}">Stopwatch</text>')
+    parts.append(f'  <rect x="{px2 + 104}" y="{py2 + ph2 + 26}" width="11" height="10" fill="{PALETTE["turf"]}"/>')
+    parts.append(f'  <text x="{px2 + 120}" y="{py2 + ph2 + 35}" font-family="{FONT_SANS}" font-size="10.4" fill="{PALETTE["ink"]}">V4 Positional Attn (95% CI)</text>')
+    parts.append(f'  <rect x="{px2 + 286}" y="{py2 + ph2 + 26}" width="11" height="10" fill="{PALETTE["crimson"]}" opacity="0.88"/>')
+    parts.append(f'  <text x="{px2 + 302}" y="{py2 + ph2 + 35}" font-family="{FONT_SANS}" font-size="10.4" fill="{PALETTE["crimson"]}">DL/EDGE LOYO (+0.7045)</text>')
+
+    # --- BOTTOM STRIP: Panel C ---
+    cy_top = 504
+    ch_box = 128
+    parts.append(f'  <rect x="56" y="{cy_top}" width="1088" height="{ch_box}" fill="{PALETTE["surface_alt"]}" stroke="{PALETTE["rule"]}" stroke-width="1"/>')
+    parts.append(
+        f'  <text x="76" y="{cy_top + 24}" font-family="{FONT_SERIF}" font-size="14.2" font-weight="700" fill="{PALETTE["ink"]}">'
+        f'C. Front-Office Lift Calibration: Realized NFL Snaps/Yr by OOF Optical Quintile (n=510) | '
+        f'V4 Partial R² vs Draft+SW = +{ov["partial_r2_vs_draft_stopwatch"]:.4f} (q={ov["q_fdr_vs_draft_stopwatch"]:.4f})</text>'
+    )
+
+    q_w = 196
+    q_gap = 16
+    q_colors = [PALETTE["paper"], PALETTE["surface_tint"], PALETTE["gold_pale"], PALETTE["turf_mid"], PALETTE["turf"]]
+    for qi, qd in enumerate(q_lift):
+        qx = 76 + qi * (q_w + q_gap)
+        qy = cy_top + 42
+        fill = q_colors[qi]
+        txt_col = PALETTE["paper"] if qi >= 3 else PALETTE["ink"]
+        sub_col = PALETTE["turf_pale"] if qi >= 3 else PALETTE["ink_muted"]
+        parts.append(f'  <rect x="{qx}" y="{qy}" width="{q_w}" height="70" fill="{fill}" stroke="{PALETTE["rule"]}" stroke-width="1"/>')
+        parts.append(f'  <text x="{qx + 12}" y="{qy + 18}" font-family="{FONT_SANS}" font-size="10.2" font-weight="700" fill="{sub_col}">{_esc(qd["quintile"])}</text>')
+        parts.append(f'  <text x="{qx + 12}" y="{qy + 45}" font-family="{FONT_SERIF}" font-size="22" font-weight="700" fill="{txt_col}">{qd["mean_snaps_per_season"]:.0f} <tspan font-family="{FONT_SANS}" font-size="11" font-weight="500">snaps/yr</tspan></text>')
+        parts.append(f'  <text x="{qx + 12}" y="{qy + 62}" font-family="{FONT_SANS}" font-size="10.4" fill="{sub_col}">Starter rate: {qd["starter_rate_500_snaps"] * 100:.0f}%, {qd["mean_starts_per_season"]:.1f} starts/yr</text>')
+
+    parts.extend(
+        _svg_footer(
+            w,
+            h,
+            "All V4 encoders run zero-leakage nested CV on Colab NVIDIA L4 GPU (328 models, PyTorch Multi-Scale 1D-CNN + Dual-Head Attn + MIL).",
+        )
+    )
+    out_path.write_text("\n".join(parts), encoding="utf-8")
+    return out_path
+
+
+def render_fig5_positional_archetypes(
+    results: dict[str, Any],
+    out_path: Path,
+    v4_metrics: dict[str, Any] | None = None,
+) -> Path:
     """Figure 5: Position-Specific Biomechanical Archetype Profiles (3x2 Pure-White NYT Grid)."""
     w, h = 1180, 704
     parts = _svg_header(
@@ -752,17 +1036,44 @@ def render_fig5_positional_archetypes(results: dict[str, Any], out_path: Path) -
     parts.append(f'  <text x="{sx0 + 20}" y="{sy0 + 52}" font-family="{FONT_SERIF}" font-size="15.5" font-weight="700" fill="{PALETTE["paper"]}">Position-Tailored Optical Signals</text>')
     parts.append(f'  <line x1="{sx0 + 20}" y1="{sy0 + 62}" x2="{sx0 + card_w - 20}" y2="{sy0 + 62}" stroke="{PALETTE["turf_mid"]}" stroke-width="1"/>')
 
-    bullets = [
-        ("OL Trench Impulse", "Mass x skill max accel (r=+0.36***) beats every", "stopwatch metric and NGS athleticism score."),
-        ("WR Cut and YAC Power", "Route-break burst, angular rate ω and power drive", "NFL snaps and YAC over expected (even on opt-outs)."),
-        ("DL First-Step Burst", "Skill-drill power translates directly to Sunday", "pass-rush get-off (r=+0.56***) across 100% of DL."),
-        ("Zero Opt-Out Blindspot", "510/510 prospects tracked in skill drills vs 83%", "for 40-yd dash and just 31% for 3-cone."),
-    ]
+    if v4_metrics:
+        ov = v4_metrics["overall_v4_oof"]
+        dl_m = v4_metrics["positional_encoders"]["DL_EDGE"]
+        db_m = v4_metrics["positional_encoders"]["DB"]
+        bullets = [
+            (
+                "DL/EDGE V4 Breakout",
+                f"Positional Attn OOF R² = +{dl_m['cv_r2']:.4f} (LOYO +{dl_m['temporal_loyo_r2']:.4f},",
+                f"q_FDR={dl_m['q_fdr_vs_stopwatch']:.4f}); Partial R² +{dl_m['partial_r2_vs_stopwatch']:.4f} vs stopwatch.",
+            ),
+            (
+                "DB Backpedal & Break Lift",
+                f"Optical tracking lifts DB R² by +{db_m['delta_r2_vs_stopwatch']:.4f} over stopwatches",
+                f"(Partial R² +{db_m['partial_r2_vs_stopwatch']:.4f}, q_FDR={db_m['q_fdr_vs_stopwatch']:.4f}) via 90-deg breaks.",
+            ),
+            (
+                "OL & WR Beyond Draft Capital",
+                f"Overall Partial R² = +{ov['partial_r2_vs_draft_stopwatch']:.4f} beyond Draft+Stopwatch",
+                f"(q_FDR={ov['q_fdr_vs_draft_stopwatch']:.4f}); OL trench impulse hits r=+0.36*** on snaps.",
+            ),
+            (
+                "Zero Opt-Out Blindspot",
+                "510/510 prospects tracked in skill drills vs 83% for",
+                "40-yd dash and 31% for 3-cone (Puka Nacua opt-out).",
+            ),
+        ]
+    else:
+        bullets = [
+            ("OL Trench Impulse", "Mass x skill max accel (r=+0.36***) beats every", "stopwatch metric and NGS athleticism score."),
+            ("WR Cut and YAC Power", "Route-break burst, angular rate ω and power drive", "NFL snaps and YAC over expected (even on opt-outs)."),
+            ("DL First-Step Burst", "Skill-drill power translates directly to Sunday", "pass-rush get-off (r=+0.56***) across 100% of DL."),
+            ("Zero Opt-Out Blindspot", "510/510 prospects tracked in skill drills vs 83%", "for 40-yd dash and just 31% for 3-cone."),
+        ]
     by = sy0 + 82
     for head, l1, l2 in bullets:
         parts.append(f'  <text x="{sx0 + 20}" y="{by}" font-family="{FONT_SANS}" font-size="11.2" font-weight="700" fill="{PALETTE["gold_pale"]}">{_esc(head)}</text>')
-        parts.append(f'  <text x="{sx0 + 20}" y="{by + 14}" font-family="{FONT_SANS}" font-size="10.2" fill="{PALETTE["paper"]}">{_esc(l1)}</text>')
-        parts.append(f'  <text x="{sx0 + 20}" y="{by + 27}" font-family="{FONT_SANS}" font-size="10.2" fill="{PALETTE["paper"]}">{_esc(l2)}</text>')
+        parts.append(f'  <text x="{sx0 + 20}" y="{by + 14}" font-family="{FONT_SANS}" font-size="10.0" fill="{PALETTE["paper"]}">{_esc(l1)}</text>')
+        parts.append(f'  <text x="{sx0 + 20}" y="{by + 27}" font-family="{FONT_SANS}" font-size="10.0" fill="{PALETTE["paper"]}">{_esc(l2)}</text>')
         by += 42
 
     parts.extend(
@@ -776,18 +1087,304 @@ def render_fig5_positional_archetypes(results: dict[str, Any], out_path: Path) -
     return out_path
 
 
+def render_fig6_saliency_and_draft_ev(
+    v4_metrics: dict[str, Any],
+    v4_saliency: dict[str, Any],
+    ev_bundle: dict[str, Any],
+    out_path: Path,
+) -> Path:
+    """Figure 6: V4 0.1s Dual-Head Temporal Attention Saliency & NFL GM Draft-Room Surplus EV ($M)."""
+    w, h = 1180, 732
+    ov = v4_metrics["overall_v4_oof"]
+    pos_enc = v4_metrics["positional_encoders"]
+
+    parts = _svg_header(
+        w,
+        h,
+        "Figure 6: V4 0.1s Temporal Attention Saliency and GM Draft-Room Surplus EV",
+        (
+            "Out-of-fold dual-head burst/brake attention windows across 4 position encoders paired with "
+            "CBA-calibrated 4-year rookie contract surplus ($M, n=510)"
+        ),
+        "Interpretable 10 Hz biomechanics to NFL front-office dollars",
+    )
+
+    # --- PANEL A (Left): 4-Position 0.1s Dual-Head Attention Saliency Tracks ---
+    px1, py1, pw1, ph1 = 44, 148, 540, 356
+    parts.append(f'  <text x="{px1}" y="{py1 - 24}" font-family="{FONT_SERIF}" font-size="15.5" font-weight="700" fill="{PALETTE["ink"]}">A. 0.1s Dual-Head Temporal Attention Windows (4 Positions)</text>')
+    parts.append(f'  <text x="{px1}" y="{py1 - 8}" font-family="{FONT_SANS}" font-size="10.8" fill="{PALETTE["ink_muted"]}">Real OOF per-frame Head 1 (Burst) &amp; Head 2 (Brake) weights highlighting decisive 0.3s windows</text>')
+
+    matchups = v4_saliency["matchups"]
+    cohort_sal = v4_saliency["cohort_position_saliency"]
+    track_h = 82
+    track_gap = 9
+    group_short = {"WR_TE": "WR/TE", "DB": "DB", "DL_EDGE": "DL/EDGE", "OL_LB": "OL"}
+
+    for idx, m in enumerate(matchups[:4]):
+        grp = m["position_group"]
+        gem = m["gem"]
+        frames = gem["frames"]
+        pk = gem["peak_0_3s_window"]
+        c_win = cohort_sal[grp]
+        ty0 = py1 + idx * (track_h + track_gap)
+
+        parts.append(f'  <rect x="{px1}" y="{ty0}" width="{pw1}" height="{track_h}" fill="{PALETTE["paper"]}" stroke="{PALETTE["rule"]}" stroke-width="1"/>')
+        parts.append(f'  <rect x="{px1}" y="{ty0}" width="4" height="{track_h}" fill="{PALETTE["turf"] if idx % 2 == 0 else PALETTE["crimson"]}"/>')
+
+        drill_lbl = gem["drill_name"].replace("_", " ").replace("BACK PEDAL AND 90 DEGREE BREAK TO BALL", "90-Deg Break").title()
+        head_l = f"{group_short.get(grp, grp)} · {gem['display_name']} ({drill_lbl})"
+        head_r = (
+            f"Peak {pk['start_sec']:.1f}-{pk['end_sec']:.1f}s ({pk['attention_mass'] * 100:.1f}%) · "
+            f"Cohort {c_win['mean_peak_window_start_sec']:.2f}-{c_win['mean_peak_window_end_sec']:.2f}s"
+        )
+        parts.append(f'  <text x="{px1 + 12}" y="{ty0 + 15}" font-family="{FONT_SANS}" font-size="10.6" font-weight="700" fill="{PALETTE["ink"]}">{_esc(head_l)}</text>')
+        parts.append(f'  <text x="{px1 + pw1 - 10}" y="{ty0 + 15}" text-anchor="end" font-family="{FONT_MONO}" font-size="9.2" font-weight="700" fill="{PALETTE["crimson"]}">{_esc(head_r)}</text>')
+
+        plot_x = px1 + 12
+        plot_y = ty0 + 22
+        plot_w = pw1 - 24
+        plot_h = 48
+        parts.append(f'  <rect x="{plot_x}" y="{plot_y}" width="{plot_w}" height="{plot_h}" fill="{PALETTE["surface_alt"]}" stroke="{PALETTE["rule"]}" stroke-width="0.6"/>')
+
+        ts = np.array([f["t_sec"] for f in frames], dtype=float)
+        h1 = np.array([f["attn_head1_burst"] for f in frames], dtype=float)
+        h2 = np.array([f["attn_head2_brake"] for f in frames], dtype=float)
+        t_max = max(float(ts[-1]), 0.5)
+        w_max = max(float(max(h1.max(), h2.max())) * 1.15, 0.02)
+
+        xt = lambda t: plot_x + (float(t) / t_max) * plot_w
+        yw = lambda val: plot_y + plot_h - (float(val) / w_max) * (plot_h - 4)
+
+        # Peak 0.3s crimson saliency band
+        wx1 = xt(pk["start_sec"])
+        wx2 = max(wx1 + 10.0, xt(pk["end_sec"]))
+        parts.append(f'  <rect x="{wx1:.1f}" y="{plot_y}" width="{min(plot_x + plot_w - wx1, wx2 - wx1):.1f}" height="{plot_h}" fill="{PALETTE["crimson_pale"]}" stroke="{PALETTE["crimson"]}" stroke-width="1"/>')
+
+        # Head 1 (Burst) area + line in turf green
+        pts_h1 = [f"{xt(t):.1f},{yw(v):.1f}" for t, v in zip(ts, h1)]
+        poly_h1 = f"{plot_x:.1f},{plot_y + plot_h:.1f} " + " ".join(pts_h1) + f" {xt(ts[-1]):.1f},{plot_y + plot_h:.1f}"
+        parts.append(f'  <polygon points="{poly_h1}" fill="{PALETTE["turf"]}" opacity="0.22"/>')
+        parts.append(f'  <polyline fill="none" stroke="{PALETTE["turf"]}" stroke-width="1.8" points="{" ".join(pts_h1)}"/>')
+
+        # Head 2 (Brake) area + dashed line in warm gold
+        pts_h2 = [f"{xt(t):.1f},{yw(v):.1f}" for t, v in zip(ts, h2)]
+        poly_h2 = f"{plot_x:.1f},{plot_y + plot_h:.1f} " + " ".join(pts_h2) + f" {xt(ts[-1]):.1f},{plot_y + plot_h:.1f}"
+        parts.append(f'  <polygon points="{poly_h2}" fill="{PALETTE["gold"]}" opacity="0.20"/>')
+        parts.append(f'  <polyline fill="none" stroke="{PALETTE["gold_text"]}" stroke-width="1.5" stroke-dasharray="4,2" points="{" ".join(pts_h2)}"/>')
+
+        # Subtle time ticks
+        parts.append(f'  <text x="{plot_x + 2}" y="{ty0 + 79}" font-family="{FONT_MONO}" font-size="8.6" fill="{PALETTE["ink_faint"]}">0.0s</text>')
+        parts.append(f'  <text x="{plot_x + plot_w / 2:.1f}" y="{ty0 + 79}" text-anchor="middle" font-family="{FONT_MONO}" font-size="8.6" fill="{PALETTE["ink_faint"]}">{t_max / 2:.1f}s</text>')
+        parts.append(f'  <text x="{plot_x + plot_w - 2:.1f}" y="{ty0 + 79}" text-anchor="end" font-family="{FONT_MONO}" font-size="8.6" fill="{PALETTE["ink_faint"]}">{t_max:.1f}s ({len(frames)}f @10Hz)</text>')
+
+    # Panel A legend
+    leg_a_y = py1 + ph1 + 18
+    parts.append(f'  <line x1="{px1}" y1="{leg_a_y}" x2="{px1 + 22}" y2="{leg_a_y}" stroke="{PALETTE["turf"]}" stroke-width="2.4"/>')
+    parts.append(f'  <text x="{px1 + 28}" y="{leg_a_y + 4}" font-family="{FONT_SANS}" font-size="10.2" fill="{PALETTE["ink"]}">Head 1: Burst Accel</text>')
+    parts.append(f'  <line x1="{px1 + 154}" y1="{leg_a_y}" x2="{px1 + 176}" y2="{leg_a_y}" stroke="{PALETTE["gold_text"]}" stroke-width="2.0" stroke-dasharray="4,2"/>')
+    parts.append(f'  <text x="{px1 + 182}" y="{leg_a_y + 4}" font-family="{FONT_SANS}" font-size="10.2" fill="{PALETTE["ink"]}">Head 2: Decel/Brake</text>')
+    parts.append(f'  <rect x="{px1 + 314}" y="{leg_a_y - 6}" width="14" height="11" fill="{PALETTE["crimson_pale"]}" stroke="{PALETTE["crimson"]}" stroke-width="1"/>')
+    parts.append(f'  <text x="{px1 + 334}" y="{leg_a_y + 4}" font-family="{FONT_SANS}" font-size="10.2" fill="{PALETTE["crimson"]}">Peak 0.3s Saliency Window</text>')
+
+    # --- PANEL B (Right): GM Draft-Room 4-Yr Surplus EV ($M) Across Rounds 1-7 ---
+    px2, py2, pw2, ph2 = 634, 148, 510, 356
+    parts.append(f'  <text x="{px2}" y="{py2 - 24}" font-family="{FONT_SERIF}" font-size="15.5" font-weight="700" fill="{PALETTE["ink"]}">B. GM Draft-Room 4-Yr Rookie Surplus EV ($M)</text>')
+    parts.append(f'  <text x="{px2}" y="{py2 - 8}" font-family="{FONT_SANS}" font-size="10.8" fill="{PALETTE["ink_muted"]}">CBA rookie contract cost vs optical production EV (Rounds 1–7, 95% CI, 510 real rookies)</text>')
+    parts.append(f'  <rect x="{px2}" y="{py2}" width="{pw2}" height="{ph2}" fill="{PALETTE["paper"]}" stroke="{PALETTE["rule"]}" stroke-width="1"/>')
+
+    # Average curves across the 4 position groups for cohort-wide NFL Draft Room overview
+    groups = list(ev_bundle["curves_by_group"].keys())
+    n_pts = len(ev_bundle["curves_by_group"][groups[0]]["elite_opt_p15"])
+
+    def _avg_curve(tier: str) -> list[dict[str, float]]:
+        out = []
+        for j in range(n_pts):
+            pk_val = ev_bundle["curves_by_group"][groups[0]][tier][j]["pick"]
+            out.append(
+                {
+                    "pick": pk_val,
+                    "surplus_m": float(np.mean([ev_bundle["curves_by_group"][g][tier][j]["surplus_m"] for g in groups])),
+                    "ci_lo": float(np.mean([ev_bundle["curves_by_group"][g][tier][j]["ci_lo"] for g in groups])),
+                    "ci_hi": float(np.mean([ev_bundle["curves_by_group"][g][tier][j]["ci_hi"] for g in groups])),
+                    "bust_red_pct": float(np.mean([ev_bundle["curves_by_group"][g][tier][j]["bust_red_pct"] for g in groups])),
+                }
+            )
+        return out
+
+    c_elite = _avg_curve("elite_opt_p15")
+    c_med = _avg_curve("median_opt_00")
+    c_trap = _avg_curve("trap_opt_m15")
+
+    y_min_b, y_max_b = -22.0, 58.0
+    xb2 = lambda pk: px2 + ((float(pk) - 1.0) / 256.0) * pw2
+    yb2 = lambda val: py2 + ph2 - ((max(y_min_b, min(y_max_b, float(val))) - y_min_b) / (y_max_b - y_min_b)) * ph2
+
+    # Gridlines & axes
+    for ytick in [-20, -10, 0, 10, 20, 30, 40, 50]:
+        yy = yb2(ytick)
+        is_zero = ytick == 0
+        parts.append(
+            f'  <line x1="{px2}" y1="{yy:.1f}" x2="{px2 + pw2}" y2="{yy:.1f}" '
+            f'stroke="{PALETTE["ink"] if is_zero else PALETTE["rule"]}" stroke-width="{1.2 if is_zero else 0.8}"'
+            f'{" stroke-dasharray=\"5,3\"" if is_zero else ""}/>'
+        )
+        lbl_y = f"+${ytick}M" if ytick > 0 else (f"-${abs(ytick)}M" if ytick < 0 else "$0M")
+        parts.append(f'  <text x="{px2 - 8}" y="{yy + 3.5:.1f}" text-anchor="end" font-family="{FONT_MONO}" font-size="9.5" fill="{PALETTE["ink_muted"]}">{lbl_y}</text>')
+
+    for pk_t, rd_lbl in [(1, "#1"), (32, "Rd1"), (64, "Rd2"), (100, "Rd3"), (135, "Rd4"), (177, "Rd5"), (220, "Rd6"), (257, "Rd7")]:
+        xx = xb2(pk_t)
+        parts.append(f'  <line x1="{xx:.1f}" y1="{py2}" x2="{xx:.1f}" y2="{py2 + ph2}" stroke="{PALETTE["surface_tint"]}" stroke-width="0.9"/>')
+        parts.append(f'  <text x="{xx:.1f}" y="{py2 + ph2 + 16}" text-anchor="middle" font-family="{FONT_MONO}" font-size="9.5" fill="{PALETTE["ink_muted"]}">{rd_lbl}</text>')
+
+    # Real 510-prospect background dots (pure real data)
+    for pr in ev_bundle["prospects"]:
+        sx = xb2(pr["pk"])
+        sy = yb2(pr["surplus"])
+        d_col = PALETTE["turf_mid"] if pr["oz"] >= 0.5 else (PALETTE["crimson"] if pr["oz"] <= -0.5 else PALETTE["ink_faint"])
+        parts.append(f'  <circle cx="{sx:.1f}" cy="{sy:.1f}" r="2.2" fill="{d_col}" opacity="0.22"/>')
+
+    # Shaded 95% CI polygons for Elite (+1.5σ) and Trap (-1.5σ)
+    el_up = [f"{xb2(p['pick']):.1f},{yb2(p['ci_hi']):.1f}" for p in c_elite]
+    el_dn = [f"{xb2(p['pick']):.1f},{yb2(p['ci_lo']):.1f}" for p in reversed(c_elite)]
+    parts.append(f'  <polygon points="{" ".join(el_up + el_dn)}" fill="{PALETTE["turf_pale"]}" opacity="0.80"/>')
+
+    tr_up = [f"{xb2(p['pick']):.1f},{yb2(p['ci_hi']):.1f}" for p in c_trap]
+    tr_dn = [f"{xb2(p['pick']):.1f},{yb2(p['ci_lo']):.1f}" for p in reversed(c_trap)]
+    parts.append(f'  <polygon points="{" ".join(tr_up + tr_dn)}" fill="{PALETTE["crimson_pale"]}" opacity="0.65"/>')
+
+    # EV Curves
+    pts_med = " ".join(f"{xb2(p['pick']):.1f},{yb2(p['surplus_m']):.1f}" for p in c_med)
+    pts_trap = " ".join(f"{xb2(p['pick']):.1f},{yb2(p['surplus_m']):.1f}" for p in c_trap)
+    pts_elite = " ".join(f"{xb2(p['pick']):.1f},{yb2(p['surplus_m']):.1f}" for p in c_elite)
+    parts.append(f'  <polyline fill="none" stroke="{PALETTE["ink_muted"]}" stroke-width="1.6" stroke-dasharray="3,3" points="{pts_med}"/>')
+    parts.append(f'  <polyline fill="none" stroke="{PALETTE["crimson"]}" stroke-width="2.4" stroke-dasharray="6,3" points="{pts_trap}"/>')
+    parts.append(f'  <polyline fill="none" stroke="{PALETTE["turf"]}" stroke-width="3.2" points="{pts_elite}"/>')
+
+    # Highlight 3 real historical NFL spotlight players from the 510 cohort
+    by_id = {p["id"]: p for p in ev_bundle["prospects"]}
+    spot_specs = [
+        (56042, PALETTE["turf"], -142, 16),     # Puka Nacua (#177)
+        (55919, PALETTE["gold_text"], 12, -26), # Tuli Tuipulotu (#54)
+        (55916, PALETTE["crimson"], 14, 14),    # Cam Smith (#51)
+    ]
+    for pid, scol, dx, dy in spot_specs:
+        if pid not in by_id:
+            continue
+        pr = by_id[pid]
+        cx, cy = xb2(pr["pk"]), yb2(pr["surplus"])
+        tag = f"{pr['name']} (#{pr['pk']}, {pr['surplus']:+.1f}M)"
+        bw = max(136.0, len(tag) * 5.8 + 14.0)
+        bx = max(px2 + 6.0, min(px2 + pw2 - bw - 6.0, cx + dx))
+        by_box = max(py2 + 8.0, min(py2 + ph2 - 26.0, cy + dy))
+        parts.append(f'  <line x1="{cx:.1f}" y1="{cy:.1f}" x2="{bx + (0 if bx > cx else bw):.1f}" y2="{by_box + 9:.1f}" stroke="{PALETTE["ink"]}" stroke-width="0.9"/>')
+        parts.append(f'  <circle cx="{cx:.1f}" cy="{cy:.1f}" r="5.2" fill="{scol}" stroke="{PALETTE["paper"]}" stroke-width="1.5"/>')
+        parts.append(f'  <rect x="{bx:.1f}" y="{by_box:.1f}" width="{bw:.1f}" height="19" rx="2" fill="{PALETTE["paper"]}" stroke="{scol}" stroke-width="1.2"/>')
+        parts.append(f'  <text x="{bx + 6:.1f}" y="{by_box + 12.8:.1f}" font-family="{FONT_SANS}" font-size="9.6" font-weight="700" fill="{PALETTE["ink"]}">{_esc(tag)}</text>')
+
+    # Panel B legend
+    parts.append(f'  <line x1="{px2}" y1="{leg_a_y + 12}" x2="{px2 + 22}" y2="{leg_a_y + 12}" stroke="{PALETTE["turf"]}" stroke-width="3.0"/>')
+    parts.append(f'  <text x="{px2 + 28}" y="{leg_a_y + 16}" font-family="{FONT_SANS}" font-size="10.2" font-weight="700" fill="{PALETTE["turf"]}">Elite Optical (+1.5σ)</text>')
+    parts.append(f'  <line x1="{px2 + 168}" y1="{leg_a_y + 12}" x2="{px2 + 190}" y2="{leg_a_y + 12}" stroke="{PALETTE["ink_muted"]}" stroke-width="1.8" stroke-dasharray="3,3"/>')
+    parts.append(f'  <text x="{px2 + 196}" y="{leg_a_y + 16}" font-family="{FONT_SANS}" font-size="10.2" fill="{PALETTE["ink_muted"]}">Median (0.0σ)</text>')
+    parts.append(f'  <line x1="{px2 + 298}" y1="{leg_a_y + 12}" x2="{px2 + 320}" y2="{leg_a_y + 12}" stroke="{PALETTE["crimson"]}" stroke-width="2.4" stroke-dasharray="6,3"/>')
+    parts.append(f'  <text x="{px2 + 326}" y="{leg_a_y + 16}" font-family="{FONT_SANS}" font-size="10.2" font-weight="700" fill="{PALETTE["crimson"]}">Trap (-1.5σ)</text>')
+
+    # --- PANEL C (Bottom Executive KPI Strip): 4 Front-Office Quantitative Cards ---
+    day3_el = float(np.mean([p["surplus_m"] for p in c_elite if p["pick"] >= 100]))
+    day3_tr = float(np.mean([p["surplus_m"] for p in c_trap if p["pick"] >= 100]))
+    day3_swing = day3_el - day3_tr
+    mean_bust_red = float(np.mean([p["bust_red_pct"] for p in c_elite]))
+    dl_m = pos_enc["DL_EDGE"]
+
+    cards = [
+        (
+            "Day-3 Optical EV Swing",
+            f"+${day3_swing:.1f}M",
+            f"4-yr surplus gap (+1.5σ vs -1.5σ)",
+            "Rounds 4–7 rookie contract arbitrage",
+            PALETTE["turf"],
+        ),
+        (
+            "Bust Risk Reduction",
+            f"-{mean_bust_red:.1f}%",
+            "Lower bust prob vs stopwatch slot",
+            "Averaged across Picks #1–#257 (+1.5σ)",
+            PALETTE["gold"],
+        ),
+        (
+            "DL / EDGE Breakout",
+            f"R² +{dl_m['cv_r2']:.4f}",
+            f"Temporal LOYO +{dl_m['temporal_loyo_r2']:.4f} (q={dl_m['q_fdr_vs_stopwatch']:.4f})",
+            f"Partial R² +{dl_m['partial_r2_vs_stopwatch']:.4f} vs stopwatch",
+            PALETTE["crimson"],
+        ),
+        (
+            "Overall V4 Rigor (n=497)",
+            f"R² +{ov['cv_r2']:.4f}",
+            f"LOYO +{ov['temporal_loyo_r2']:.4f} (q=0.0264 vs V2)",
+            f"Partial R² +{ov['partial_r2_vs_draft_stopwatch']:.4f} vs Draft+SW",
+            PALETTE["ink"],
+        ),
+    ]
+
+    cy0 = 560
+    cw = 262
+    cgap = 17
+    ch = 114
+    for ci, (kicker, big, l1, l2, acc) in enumerate(cards):
+        cx0 = 44 + ci * (cw + cgap)
+        parts.append(f'  <rect x="{cx0}" y="{cy0}" width="{cw}" height="{ch}" fill="{PALETTE["surface_alt"]}" stroke="{PALETTE["rule"]}" stroke-width="1"/>')
+        parts.append(f'  <rect x="{cx0}" y="{cy0}" width="{cw}" height="4" fill="{acc}"/>')
+        parts.append(f'  <text x="{cx0 + 14}" y="{cy0 + 24}" font-family="{FONT_SANS}" font-size="10.4" font-weight="700" fill="{acc}">{_esc(kicker)}</text>')
+        parts.append(f'  <text x="{cx0 + 14}" y="{cy0 + 58}" font-family="{FONT_SERIF}" font-size="24" font-weight="700" fill="{PALETTE["ink"]}">{_esc(big)}</text>')
+        parts.append(f'  <text x="{cx0 + 14}" y="{cy0 + 80}" font-family="{FONT_SANS}" font-size="10.4" font-weight="600" fill="{PALETTE["ink"]}">{_esc(l1)}</text>')
+        parts.append(f'  <text x="{cx0 + 14}" y="{cy0 + 98}" font-family="{FONT_SANS}" font-size="10.0" fill="{PALETTE["ink_muted"]}">{_esc(l2)}</text>')
+
+    parts.extend(
+        _svg_footer(
+            w,
+            h,
+            "Source: 100% real NFL BDB 2027 tracking (431k Combine frames, 22.65M game frames), V4 Colab L4 GPU OOF attention, and CBA rookie wage anchors.",
+        )
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(parts), encoding="utf-8")
+    return out_path
+
+
 def generate_all_figures(
     paths: DatasetPaths,
     results: dict[str, Any],
     master_df: pd.DataFrame,
     figures_dir: Path = FIGURES_DIR,
+    v4_metrics: dict[str, Any] | None = None,
+    v4_saliency: dict[str, Any] | None = None,
+    ev_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Path]:
-    """Generate all 5 crisp pure-white publication SVG figures from 100% real data."""
+    """Generate all crisp pure-white publication SVG figures (fig1–fig6) from 100% real data."""
     figures_dir.mkdir(parents=True, exist_ok=True)
-    return {
-        "fig1": render_fig1_transfer_matrix(results, figures_dir / "fig1_kinematic_transfer_matrix.svg"),
-        "fig2": render_fig2_velocity_decel_profiles(paths, master_df, figures_dir / "fig2_optical_velocity_decel_profiles.svg"),
-        "fig3": render_fig3_draft_capital_alpha(master_df, figures_dir / "fig3_draft_capital_residual_alpha.svg"),
-        "fig4": render_fig4_model_ablation_lift(results, figures_dir / "fig4_model_ablation_lift.svg"),
-        "fig5": render_fig5_positional_archetypes(results, figures_dir / "fig5_positional_biomechanical_archetypes.svg"),
+    out = {
+        "fig1": render_fig1_transfer_matrix(
+            results, figures_dir / "fig1_kinematic_transfer_matrix.svg", v4_metrics=v4_metrics
+        ),
+        "fig2": render_fig2_velocity_decel_profiles(
+            paths, master_df, figures_dir / "fig2_optical_velocity_decel_profiles.svg", v4_saliency=v4_saliency
+        ),
+        "fig3": render_fig3_draft_capital_alpha(
+            master_df, figures_dir / "fig3_draft_capital_residual_alpha.svg", v4_metrics=v4_metrics, ev_bundle=ev_bundle
+        ),
+        "fig4": render_fig4_model_ablation_lift(
+            results, figures_dir / "fig4_model_ablation_lift.svg", v4_metrics=v4_metrics
+        ),
+        "fig5": render_fig5_positional_archetypes(
+            results, figures_dir / "fig5_positional_biomechanical_archetypes.svg", v4_metrics=v4_metrics
+        ),
     }
+    if v4_metrics is not None and v4_saliency is not None and ev_bundle is not None:
+        out["fig6"] = render_fig6_saliency_and_draft_ev(
+            v4_metrics,
+            v4_saliency,
+            ev_bundle,
+            figures_dir / "fig6_temporal_attention_saliency_and_draft_ev.svg",
+        )
+    return out

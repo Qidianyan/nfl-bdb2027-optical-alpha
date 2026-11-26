@@ -1,4 +1,4 @@
-"""Export all 5 Economist/NYT pure-white SVG figures to crisp 2x Retina PNGs via Playwright Chromium."""
+"""Export all 6 Economist/NYT pure-white SVG figures to crisp 2x Retina PNGs via Playwright Chromium."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ SVG_FILES = [
     "fig3_draft_capital_residual_alpha.svg",
     "fig4_model_ablation_lift.svg",
     "fig5_positional_biomechanical_archetypes.svg",
+    "fig6_temporal_attention_saliency_and_draft_ev.svg",
 ]
 
 PNG_ALIASES = {
